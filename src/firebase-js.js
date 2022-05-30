@@ -159,7 +159,7 @@ window.firebaseCreateUser = async function (email, password) {
     var userJsonData = null;
     await createUserWithEmailAndPassword(firebaseJs.auth, email, password).then(async (userCredential) => {
         userJsonData = JSON.stringify(userCredential.user);
-        await window.firebaseS(userCredential.user);
+        await window.firebaseAuthStateChanged(userCredential.user);
     }).catch((e) => {
         console.error(e)
     });
@@ -220,9 +220,17 @@ window.firebaseLoginWithGooglePopup = async function () {
 
 window.firebaseSignOut = async function () {
     if (!window.firebaseIsInitialized()) {
-        return;
+        return false;
     }
-    await signOut(firebaseJs.auth);
+    var result = null;
+    signOut(firebaseJs.auth).then(() => {
+        // Sign-out successful.
+        result = true;
+    }).catch((error) => {
+        // An error happened.
+        result = false;
+    });
+    return result;
 }
 
 export default { firebaseJs }
