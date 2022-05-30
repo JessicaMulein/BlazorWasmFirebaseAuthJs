@@ -233,4 +233,21 @@ window.firebaseSignOut = async function () {
     return result;
 }
 
+window.firebaseValidateToken = async function (idToken) {
+    if (!window.firebaseIsInitialized()) {
+        return false;
+    }
+    var result = null;
+    firebaseJs.auth
+        .verifyIdToken(idToken)
+        .then((decodedToken) => {
+            result = decodedToken;
+        })
+        .catch((error) => {
+            // Handle error
+            result = false;
+        });
+    return result;
+}
+
 export default { firebaseJs }
