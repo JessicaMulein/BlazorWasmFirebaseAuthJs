@@ -5,9 +5,9 @@ import {
     sendEmailVerification, sendPasswordResetEmail, 
     signInWithPopup, GoogleAuthProvider
 } from 'firebase/auth';
-import { getDatabase, ref as dbRef } from "firebase/database";
+import { getDatabase, ref as dbRef, serverTimestamp as dbServerTimestamp } from "firebase/database";
 import { getAnalytics } from "firebase/analytics";
-import { getFirestore } from 'firebase/firestore';
+import { getFirestore, serverTimestamp as firestoreServerTimestamp } from 'firebase/firestore';
 import { } from 'firebase/functions';
 import { } from 'firebase/messaging';
 import { } from 'firebase/storage';
@@ -18,6 +18,7 @@ import { } from 'firebase/storage';
 const _firebaseJs = {
     data: {
         signedInUid: null,
+        lastUid: null,
         isOnlineForDatabase: null,
         isOnlineForFirestore: null,
         isOfflineForDatabase: null,
@@ -47,24 +48,22 @@ const _firebaseJs = {
         _firebaseJs.firestore = getFirestore(_firebaseJs.app);
         _firebaseJs.provider = new GoogleAuthProvider();
         // set up constants for later
-        /*
         _firebaseJs.data.isOnlineForDatabase = {
             state: 'online',
-            last_changed: _firebaseJs.database.ServerValue.TIMESTAMP,
+            last_changed: dbServerTimestamp(),
         };
         _firebaseJs.data.isOnlineForFirestore = {
             state: 'online',
-            last_changed: _firebaseJs.firestore.FieldValue.serverTimestamp(),
+            last_changed: firestoreServerTimestamp(),
         };
         _firebaseJs.data.isOfflineForDatabase = {
             state: 'offline',
-            last_changed: _firebaseJs.database.ServerValue.TIMESTAMP,
+            last_changed: dbServerTimestamp(),
         };
         _firebaseJs.data.isOfflineForFirestore = {
             state: 'offline',
-            last_changed: _firebaseJs.firestore.FieldValue.serverTimestamp(),
+            last_changed: firestoreServerTimestamp(),
         };
-        */
 
         try {
             console.log(`Firebase app "${_firebaseJs.app.name}" loaded`);
@@ -89,11 +88,10 @@ const _firebaseJs = {
         await _firebaseJs.dotNetFirebaseAuthReference.invokeMethodAsync('OnAuthStateChanged', user);
         console.log("auth state changed invoked, updating presence");
         if (user !== null && user !== undefined) {
-            //_firebaseJs.firebasePresenceConnect();
+            _firebaseJs.firebasePresenceGoOnline(user.uid);
         } else {
             if (_firebaseJs.data.signedInUid !== null) {
-                //_firebaseJs.firebasePresenceGoOffline(_firebaseJs.data.signedInUid);
-                _firebaseJs.data.signedInUid = null;
+                _firebaseJs.firebasePresenceGoOffline();
             }
         }
     },
@@ -234,92 +232,27 @@ const _firebaseJs = {
             });
         return result;
     },
-    /*
     firebasePresenceGoOnline: function (uid) {
+        _firebaseJs.data.signedInUid = uid;
+        return;
         var userStatusDatabaseRef = dbRef('/status/' + uid);
         var userStatusFirestoreRef = _firebaseJs.firestore.doc('/status/' + uid);
         userStatusDatabaseRef.set(_firebaseJs.data.isOnlineForDatabase);
         userStatusFirestoreRef.set(_firebaseJs.data.isOnlineForFirestore);
-        _firebaseJs.data.signedInUid = uid;
     },
-    firebasePresenceGoOffline: function (uid) {
-        if (uid === null || uid === undefined) {
-            uid = _firebaseJs.data.signedInUid;
-        }
-        if (uid === null) {
+    firebasePresenceGoOffline: function () {
+        if (_firebaseJs.data.signedInUid === null || _firebaseJs.data.signedInUid === undefined) {
             return;
         }
-        
+        var uid = _firebaseJs.data.signedInUid;
+        _firebaseJs.data.signedInUid = null;
+        _firebaseJs.data.lastUid = uid;
+        return;
         var userStatusDatabaseRef = dbRef('/status/' + uid);
         var userStatusFirestoreRef = _firebaseJs.firestore.doc('/status/' + uid);
         userStatusDatabaseRef.set(_firebaseJs.data.isOfflineForDatabase);
         userStatusFirestoreRef.set(_firebaseJs.data.isOfflineForFirestore);
-        _firebaseJs.data.signedInUid = null;
-    },
-    firebasePresenceConnect: function () {
-        // Fetch the current user's ID from Firebase Authentication.
-        var user = _firebaseJs.auth.currentUser;
-        if (user === undefined || user === null) {
-            return;
-        }
-        var uid = user.uid;
-        _firebaseJs.firebasePresenceGoOnline(uid);
-
-        // Create a reference to this user's specific status node.
-        // This is where we will store data about being online/offline.
-        var userStatusDatabaseRef = dbRef('/status/' + uid);
-
-        // Create a reference to the special '.info/connected' path in 
-        // Realtime Database. This path returns `true` when connected
-        // and `false` when disconnected.
-        dbRef('.info/connected').on('value', function (snapshot) {
-            if (snapshot.val() == false) {
-                // Instead of simply returning, we'll also set Firestore's state
-                // to 'offline'. This ensures that our Firestore cache is aware
-                // of the switch to 'offline.'
-                userStatusFirestoreRef.set(_firebaseJs.data.isOfflineForFirestore);
-                return;
-            };
-
-            userStatusDatabaseRef.onDisconnect().set(isOfflineForDatabase).then(function () {
-                userStatusDatabaseRef.set(_firebaseJs.data.isOnlineForDatabase);
-
-                // We'll also add Firestore set here for when we come online.
-                userStatusFirestoreRef.set(_firebaseJs.data.isOnlineForFirestore);
-            });
-        });
-    },
-    // Create a new function which is triggered on changes to /status/{uid}
-    // Note: This is a Realtime Database trigger, *not* Firestore.
-    onUserStatusChanged: dbRef('/status/{uid}').onUpdate(
-        async (change, context) => {
-            // Get the data written to Realtime Database
-            const eventStatus = change.after.val();
-
-            // Then use other event data to create a reference to the
-            // corresponding Firestore document.
-            const userStatusFirestoreRef = _firebaseJs.firestore.doc(`status/${context.params.uid}`);
-
-            // It is likely that the Realtime Database change that triggered
-            // this event has already been overwritten by a fast change in
-            // online / offline status, so we'll re-read the current data
-            // and compare the timestamps.
-            const statusSnapshot = await change.after.ref.once('value');
-            const status = statusSnapshot.val();
-            functions.logger.log(status, eventStatus);
-            // If the current timestamp for this data is newer than
-            // the data that triggered this event, we exit this function.
-            if (status.last_changed > eventStatus.last_changed) {
-                return null;
-            }
-
-            // Otherwise, we convert the last_changed field to a Date
-            eventStatus.last_changed = new Date(eventStatus.last_changed);
-
-            // ... and write it to Firestore.
-            return userStatusFirestoreRef.set(eventStatus);
-        })
-    */
+    }
 };
 
 window.firebaseJs = _firebaseJs;
