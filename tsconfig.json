@@ -6,10 +6,22 @@
     "removeComments": true,
     "sourceMap": true,
     "allowJs": true,
-    "noEmit": true,
-    "target": "es6"
+    "noEmit": false,
+    "target": "es6",
+    "outDir": "build",
+    "skipLibCheck": true
   },
   "typingOptions": {
     "enableAutoDiscovery": true
-  }
+  },
+  "include": [
+    "src/firebaseJs.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "build/**/*"
+  ],
+  "files": [
+    "src/firebaseJs.ts"
+  ]
 }

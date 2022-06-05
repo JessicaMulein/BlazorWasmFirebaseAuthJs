@@ -1,5 +1,6 @@
 bin/
 obj/
+net6.0/
 
 # Logs
 logs

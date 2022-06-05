@@ -14,11 +14,14 @@
     <VSToolsPath Condition="'$(VSToolsPath)' == ''">$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v$(VisualStudioVersion)</VSToolsPath>
     <Name>firebaseJs</Name>
     <ProjectHome />
-    <StaticWebAssetBasePath>node_modules</StaticWebAssetBasePath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)' == 'Debug'" />
   <PropertyGroup Condition="'$(Configuration)' == 'Release'" />
   <ItemGroup>
+	  <Content Include="dist\firebaseJs-bundle.js">
+		  <Publish>true</Publish>
+	  </Content>
+	<Content Include=".eslintrc.json" />
     <Content Include="database.rules.json" />
     <Content Include="firebase.json" />
     <Content Include="firestore.indexes.json" />
@@ -35,12 +38,6 @@
     <Content Include="functions\index.js" />
     <Content Include="public\404.html" />
     <Content Include="public\index.html" />
-    <Content Include="src\firebaseJs.js">
-      <Publish>False</Publish>
-    </Content>
-    <Content Include="dist\firebaseJs-bundle.js">
-      <Publish>true</Publish>
-    </Content>
   </ItemGroup>
   <ItemGroup>
     <Folder Include="dist\" />
@@ -48,8 +45,7 @@
     <Folder Include="public" />
     <Folder Include="src" />
   </ItemGroup>
-  <Import Project="$(MSBuildToolsPath)\Microsoft.Common.targets" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
-  <Import Project="$(VSToolsPath)\Node.js Tools\Microsoft.NodejsToolsV2.targets" />
+
   <ProjectExtensions>
     <VisualStudio>
       <FlavorProperties GUID="{349c5851-65df-11da-9384-00065b846f21}">
@@ -88,8 +84,19 @@
       </FlavorProperties>
     </VisualStudio>
   </ProjectExtensions>
-  <Target Name="PreBuild" BeforeTargets="PreBuildEvent">
-    <Exec Command="npm install" WorkingDirectory="." />
-    <Exec Command="npm run build" WorkingDirectory="." />
-  </Target>
+	<Target Name="EnsureNpmRestored" Condition="!Exists('node_modules')">
+		<Message Importance="high" Text="Restoring dependencies using 'npm'. This may take several minutes..." />
+		<Exec Command="npm install" />
+	</Target>
+	<ItemGroup>
+		<WebpackInputs Include="src\**\*.ts" Exclude="dist\**;node_modules\**; **\*.d.ts" />
+	</ItemGroup>
+	<Target Name="RunWebpack" AfterTargets="PreBuildEvent" Inputs="@(WebpackInputs)" Outputs="dist\firebaseJs-bundle.js" DependsOnTargets="EnsureNpmRestored">
+		<RemoveDir Directories="dist" />
+		<Exec Command="npm run build:debug" WorkingDirectory="." Condition="'$(Configuration)' == 'Debug'" />
+		<Exec Command="npm run build:production" WorkingDirectory="." Condition="'$(Configuration)' != 'Debug'" />
+		<ItemGroup>
+			<EmbeddedResource Include="dist\**\*.js" LogicalName="firebaseJs:js:%(RecursiveDir)%(Filename)%(Extension)" />
+		</ItemGroup>
+	</Target>
 </Project>
