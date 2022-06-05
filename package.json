@@ -20,6 +20,7 @@
   "dependencies": {
     "@babel/plugin-transform-modules-systemjs": "^7.18.4",
     "firebase": "^9.8.2",
+    "firebaseui": "^6.0.1",
     "systemjs": "^6.12.1"
   }
 }
