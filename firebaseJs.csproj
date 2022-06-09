@@ -45,45 +45,6 @@
     <Folder Include="public" />
     <Folder Include="src" />
   </ItemGroup>
-
-  <ProjectExtensions>
-    <VisualStudio>
-      <FlavorProperties GUID="{349c5851-65df-11da-9384-00065b846f21}">
-        <WebProjectProperties>
-          <UseIIS>False</UseIIS>
-          <AutoAssignPort>True</AutoAssignPort>
-          <DevelopmentServerPort>0</DevelopmentServerPort>
-          <DevelopmentServerVPath>/</DevelopmentServerVPath>
-          <IISUrl>http://localhost:48022/</IISUrl>
-          <NTLMAuthentication>False</NTLMAuthentication>
-          <UseCustomServer>True</UseCustomServer>
-          <CustomServerUrl>http://localhost:1337</CustomServerUrl>
-          <SaveServerSettingsInUserFile>False</SaveServerSettingsInUserFile>
-        </WebProjectProperties>
-      </FlavorProperties>
-      <FlavorProperties GUID="{349c5851-65df-11da-9384-00065b846f21}" User="">
-        <WebProjectProperties>
-          <StartPageUrl>
-          </StartPageUrl>
-          <StartAction>CurrentPage</StartAction>
-          <AspNetDebugging>True</AspNetDebugging>
-          <SilverlightDebugging>False</SilverlightDebugging>
-          <NativeDebugging>False</NativeDebugging>
-          <SQLDebugging>False</SQLDebugging>
-          <ExternalProgram>
-          </ExternalProgram>
-          <StartExternalURL>
-          </StartExternalURL>
-          <StartCmdLineArguments>
-          </StartCmdLineArguments>
-          <StartWorkingDirectory>
-          </StartWorkingDirectory>
-          <EnableENC>False</EnableENC>
-          <AlwaysStartWebServerOnDebug>False</AlwaysStartWebServerOnDebug>
-        </WebProjectProperties>
-      </FlavorProperties>
-    </VisualStudio>
-  </ProjectExtensions>
 	<Target Name="EnsureNpmRestored" Condition="!Exists('node_modules')">
 		<Message Importance="high" Text="Restoring dependencies using 'npm'. This may take several minutes..." />
 		<Exec Command="npm install" />
@@ -92,11 +53,17 @@
 		<WebpackInputs Include="src\**\*.ts" Exclude="dist\**;node_modules\**; **\*.d.ts" />
 	</ItemGroup>
 	<Target Name="RunWebpack" AfterTargets="PreBuildEvent" Inputs="@(WebpackInputs)" Outputs="dist\firebaseJs-bundle.js" DependsOnTargets="EnsureNpmRestored">
+		<Message Text="Executing CoreBuild for firebaseJs" />
+		<Message Text="Removing dist for firebaseJs" />
 		<RemoveDir Directories="dist" />
 		<Exec Command="npm run build:debug" WorkingDirectory="." Condition="'$(Configuration)' == 'Debug'" />
 		<Exec Command="npm run build:production" WorkingDirectory="." Condition="'$(Configuration)' != 'Debug'" />
 		<ItemGroup>
 			<EmbeddedResource Include="dist\**\*.js" LogicalName="firebaseJs:js:%(RecursiveDir)%(Filename)%(Extension)" />
 		</ItemGroup>
+	</Target>
+	<Target Name="Clean" AfterTargets="CoreClean">
+		<Message Text="Removing dist for firebaseJs" />
+		<RemoveDir Directories="dist" />
 	</Target>
 </Project>

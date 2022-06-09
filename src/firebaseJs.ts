@@ -6,7 +6,7 @@ declare global {
     }
 }
 
-import { initializeApp } from 'firebase/app';
+import * as firebase from 'firebase/app';
 import {
     getAuth,
     onAuthStateChanged,
@@ -158,7 +158,7 @@ const _firebaseJs = {
                 document.getElementById('firebaseUiConfig');
             _firebaseJs.uiConfig = JSON.parse(atob(firebaseUiConfigJsonDiv.innerText));
             const uiConfig = _firebaseJs.uiConfigFactory();
-            _firebaseJs.app = initializeApp(_firebaseJs.config);
+            _firebaseJs.app = firebase.initializeApp(_firebaseJs.config);
             _firebaseJs.auth = getAuth();
             _firebaseJs.database = getDatabase();
             _firebaseJs.firestore = getFirestore(_firebaseJs.app);
@@ -329,7 +329,8 @@ const _firebaseJs = {
             // Privacy policy url/callback.
             privacyPolicyUrl: function () {
                 window.location.assign(_firebaseJs.uiConfig.privacyUrl);
-            }
+            },
+            autoUpgradeAnonymousUsers: true
         };
     },
     updateProfile: async function (userData) {
