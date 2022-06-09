@@ -1,4 +1,5 @@
 ﻿//FileName : firebaseJs.ts
+/// <reference types="node" />
 'use strict';
 declare global {
     interface Window {
@@ -15,6 +16,7 @@ import {
     createUserWithEmailAndPassword,
     sendEmailVerification,
     sendPasswordResetEmail,
+    signInWithCredential,
     signInWithEmailAndPassword,
     signInWithPopup,
     signInAnonymously,
@@ -23,7 +25,11 @@ import {
     TwitterAuthProvider,
     GithubAuthProvider,
     EmailAuthProvider,
-    PhoneAuthProvider
+    PhoneAuthProvider,
+    Auth,
+    User,
+    UserInfo,
+    UserCredential
 } from 'firebase/auth';
 import {
     getDatabase,
@@ -32,7 +38,8 @@ import {
     serverTimestamp as dbServerTimestamp,
     set as dbSet,
     onValue as dbOnValue,
-    onDisconnect as dbOnDisconnect
+    onDisconnect as dbOnDisconnect,
+    Database
 } from 'firebase/database';
 import { getAnalytics } from 'firebase/analytics';
 import {
@@ -45,13 +52,74 @@ import {
     query as firestoreQuery,
     serverTimestamp as firestoreServerTimestamp,
     setDoc as firestoreSetDoc,
-    where as firestoreWhere
+    where as firestoreWhere,
+    Firestore,
+    FieldValue
 } from 'firebase/firestore';
 import {} from 'firebase/messaging';
 import {} from 'firebase/storage';
 import { auth as firebaseUiAuth } from 'firebaseui';
+import { FirebaseError } from 'firebase/app';
 
-const _firebaseJs = {
+interface IFirebaseJsDataDatabaseValue {
+    state: string;
+    last_changed: object;
+}
+
+interface IFirebaseJsDataFirestoreValue {
+    state: string;
+    last_changed: FieldValue;
+}
+
+interface IFirebaseJsData {
+    signedInUid?: string;
+    lastUid?: string;
+    isOfflineForDatabase?: IFirebaseJsDataDatabaseValue;
+    isOnlineForDatabase?: IFirebaseJsDataDatabaseValue;
+    isOfflineForFirestore?: IFirebaseJsDataFirestoreValue;
+    isOnlineForFirestore?: IFirebaseJsDataFirestoreValue;
+}
+
+interface IFirebaseUiConfigSimple {
+    signInOptions: Array<string>;
+    signInSuccessUrl: string;
+    tosUrl: string;
+    privacyPolicyUrl: string;
+}
+
+interface IFirebaseJs {
+    data: IFirebaseJsData;
+    app?: firebase.FirebaseApp;
+    auth?: Auth;
+    authStateChanged: (user: User) => any;
+    config?: object;
+    createUserWithEmail: (email: string, password: string) => Promise<string | null>;
+    database?: Database;
+    dotNetFirebaseAuthReference?: DotNet.DotNetObject;
+    firestore?: Firestore;
+    fsListen: () => any;
+    fsListenOnline: () => any;
+    googleProvider?: GoogleAuthProvider;
+    initialize: (dotNetObjectReference: DotNet.DotNetObject) => any;
+    isInitialized: () => boolean;
+    loginWithEmail: (email: string, password: string) => Promise<string | null>;
+    loginWithGooglePopup: () => Promise<string | null>;
+    rtdbPresence: () => any;
+    rtdbAndLocalFsPresence: () => any;
+    sendEmailVerification: () => Promise<boolean | null>;
+    sendEmailPasswordReset: (email: string) => Promise<boolean>;
+    setDatabaseUserStatus: (user: UserInfo, status: boolean) => any;
+    setFirestoreUserStatus: (user: UserInfo, status: boolean) => any;
+    signInAnonymously: () => Promise<any>;
+    signOut: () => Promise<boolean>;
+    ui?: firebaseUiAuth.AuthUI;
+    uiConfigFromStorage?: IFirebaseUiConfigSimple;
+    uiConfig?: firebaseUiAuth.Config;
+    uiConfigFactory: () => firebaseUiAuth.Config;
+    updateProfile: (userData: object) => Promise<any>;
+}
+
+const _firebaseJs: IFirebaseJs = {
     data: {
         signedInUid: null,
         lastUid: null,
@@ -62,7 +130,7 @@ const _firebaseJs = {
     },
     app: null,
     auth: null,
-    authStateChanged: async function (user) {
+    authStateChanged: async function (user: User) {
         console.log('authStateChanged', user);
         if (!_firebaseJs.isInitialized()) {
             return;
@@ -83,11 +151,11 @@ const _firebaseJs = {
         }
     },
     config: null,
-    createUserWithEmail: async function (email, password) {
+    createUserWithEmail: async function (email: string, password: string) {
         if (!_firebaseJs.isInitialized()) {
             return;
         }
-        let userJsonData = null;
+        let userJsonData: string = null;
         await createUserWithEmailAndPassword(_firebaseJs.auth, email, password)
             .then(async (userCredential) => {
                 userJsonData = JSON.stringify(userCredential.user);
@@ -140,7 +208,7 @@ const _firebaseJs = {
         // [END fs_onsnapshot_online]
     },
     googleProvider: null,
-    initialize: async function (dotNetObjectReference) {
+    initialize: async function (dotNetObjectReference: DotNet.DotNetObject) {
         if (
             _firebaseJs !== undefined &&
             _firebaseJs.dotNetFirebaseAuthReference !== null
@@ -156,24 +224,15 @@ const _firebaseJs = {
             _firebaseJs.config = JSON.parse(atob(firebaseConfigJsonDiv.innerText));
             const firebaseUiConfigJsonDiv: HTMLElement =
                 document.getElementById('firebaseUiConfig');
-            _firebaseJs.uiConfig = JSON.parse(atob(firebaseUiConfigJsonDiv.innerText));
-            const uiConfig = _firebaseJs.uiConfigFactory();
+            _firebaseJs.uiConfigFromStorage = JSON.parse(
+                atob(firebaseUiConfigJsonDiv.innerText)
+            );
+            const uiConfig: firebaseUiAuth.Config = _firebaseJs.uiConfigFactory();
             _firebaseJs.app = firebase.initializeApp(_firebaseJs.config);
             _firebaseJs.auth = getAuth();
             _firebaseJs.database = getDatabase();
             _firebaseJs.firestore = getFirestore(_firebaseJs.app);
             _firebaseJs.googleProvider = new GoogleAuthProvider();
-            // set up firebaseui auth
-            _firebaseJs.uiConfig.signInOptions = [
-                // Leave the lines as is for the providers you want to offer your users.
-                GoogleAuthProvider.PROVIDER_ID,
-                FacebookAuthProvider.PROVIDER_ID,
-                TwitterAuthProvider.PROVIDER_ID,
-                GithubAuthProvider.PROVIDER_ID,
-                EmailAuthProvider.PROVIDER_ID,
-                PhoneAuthProvider.PROVIDER_ID,
-                firebaseUiAuth.AnonymousAuthProvider.PROVIDER_ID
-            ];
             console.log(`Firebase app "${_firebaseJs.app.name}" loaded`);
             // set up constants for later
             _firebaseJs.data.isOnlineForDatabase = {
@@ -213,7 +272,7 @@ const _firebaseJs = {
             _firebaseJs !== undefined &&
             _firebaseJs.dotNetFirebaseAuthReference !== undefined &&
             _firebaseJs.dotNetFirebaseAuthReference !== null &&
-            _firebaseJs.auth._isInitialized
+            _firebaseJs.auth !== null
         );
     },
     loginWithEmail: async function (email, password) {
@@ -312,27 +371,50 @@ const _firebaseJs = {
         return result;
     },
     ui: null,
-    uiConfig: {
-        signInOptions: null,
-        signInSuccessUrl: null,
-        privacyUrl: null,
-        termsOfServiceUrl: null
-    },
+    uiConfig: null,
     uiConfigFactory: function () {
         return {
-            signInSuccessUrl: _firebaseJs.uiConfig.signInSuccessUrl,
-            signInOptions: _firebaseJs.uiConfig.signInOptions,
+            callbacks: {
+                // signInFailure callback must be provided to handle merge conflicts which
+                // occur when an existing credential is linked to an anonymous user.
+                signInFailure: function (error: firebaseUiAuth.AuthUIError) {
+                    // For merge conflicts, the error.code will be
+                    // 'firebaseui/anonymous-upgrade-merge-conflict'.
+                    if (error.code != 'firebaseui/anonymous-upgrade-merge-conflict') {
+                        return Promise.resolve();
+                    }
+                    // The credential the user tried to sign in with.
+                    const cred: UserCredential = error.credential;
+                    // Copy data from anonymous user to permanent user and delete anonymous
+                    // user.
+                    // ...
+                    // Finish sign-in after data is copied.
+                    throw new Error('not implemented');
+                    //return signInWithCredential(_firebaseJs.auth, Promise.resolve(cred));
+                }
+            },
+            signInSuccessUrl: _firebaseJs.uiConfigFromStorage.signInSuccessUrl,
+            signInOptions: [
+                GoogleAuthProvider.PROVIDER_ID,
+                FacebookAuthProvider.PROVIDER_ID,
+                TwitterAuthProvider.PROVIDER_ID,
+                GithubAuthProvider.PROVIDER_ID,
+                EmailAuthProvider.PROVIDER_ID,
+                PhoneAuthProvider.PROVIDER_ID,
+                firebaseUiAuth.AnonymousAuthProvider.PROVIDER_ID
+            ],
             // tosUrl and privacyPolicyUrl accept either url string or a callback
             // function.
             // Terms of service url/callback.
-            tosUrl: _firebaseJs.uiConfig.termsOfServiceUrl,
+            tosUrl: _firebaseJs.uiConfigFromStorage.tosUrl,
             // Privacy policy url/callback.
             privacyPolicyUrl: function () {
-                window.location.assign(_firebaseJs.uiConfig.privacyUrl);
+                window.location.assign(_firebaseJs.uiConfigFromStorage.privacyPolicyUrl);
             },
             autoUpgradeAnonymousUsers: true
         };
     },
+    uiConfigFromStorage: null,
     updateProfile: async function (userData) {
         if (!_firebaseJs.isInitialized()) {
             return;
@@ -351,43 +433,6 @@ const _firebaseJs = {
                 updated = false;
             });
         return updated;
-    },
-    validateToken: async function (idToken) {
-        if (!_firebaseJs.isInitialized()) {
-            return false;
-        }
-        let result = null;
-        _firebaseJs.auth
-            .verifyIdToken(idToken)
-            .then((decodedToken) => {
-                result = decodedToken;
-            })
-            .catch((error) => {
-                // Handle error
-                result = false;
-            });
-        return result;
-    },
-    setFirestoreUserStatus: function (user, status) {
-        const userStatusFirestoreRef = firestoreDoc(
-            _firebaseJs.firestore,
-            '/status/' + user.uid
-        );
-        firestoreSetDoc(
-            userStatusFirestoreRef,
-            status
-                ? _firebaseJs.data.isOnlineForFirestore
-                : _firebaseJs.data.isOfflineForFirestore
-        );
-    },
-    setDatabaseUserStatus: function (user, status) {
-        const userStatusDatabaseRef = dbRef(_firebaseJs.database, '/status/' + user.uid);
-        dbSet(
-            userStatusDatabaseRef,
-            status
-                ? _firebaseJs.data.isOnlineForDatabase
-                : _firebaseJs.data.isOfflineForDatabase
-        );
     },
     rtdbPresence: function () {
         console.log('rtdbPresence');
@@ -475,6 +520,27 @@ const _firebaseJs = {
                 });
         });
         // [END rtdb_and_local_fs_presence]
+    },
+    setDatabaseUserStatus: function (user: UserInfo, status: boolean) {
+        const userStatusDatabaseRef = dbRef(_firebaseJs.database, '/status/' + user.uid);
+        dbSet(
+            userStatusDatabaseRef,
+            status
+                ? _firebaseJs.data.isOnlineForDatabase
+                : _firebaseJs.data.isOfflineForDatabase
+        );
+    },
+    setFirestoreUserStatus: function (user: UserInfo, status: boolean) {
+        const userStatusFirestoreRef = firestoreDoc(
+            _firebaseJs.firestore,
+            '/status/' + user.uid
+        );
+        firestoreSetDoc(
+            userStatusFirestoreRef,
+            status
+                ? _firebaseJs.data.isOnlineForFirestore
+                : _firebaseJs.data.isOfflineForFirestore
+        );
     },
     signInAnonymously: async function () {
         console.log('signInAnonymously');

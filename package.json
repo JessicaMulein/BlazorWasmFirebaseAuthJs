@@ -15,7 +15,7 @@
   "devDependencies": {
     "@babel/core": "^7.18.2",
     "@babel/preset-env": "^7.18.2",
-    "@types/node": "^17.0.40",
+    "@types/node": "^17.0.41",
     "@typescript-eslint/eslint-plugin": "^5.27.0",
     "babel-loader": "^8.2.5",
     "eslint": "^8.17.0",
@@ -31,6 +31,7 @@
   },
   "dependencies": {
     "@babel/plugin-transform-modules-systemjs": "^7.18.4",
+    "@types/blazor__javascript-interop": "^3.1.2",
     "firebase": "^9.8.2",
     "firebaseui": "^6.0.1",
     "systemjs": "^6.12.1"
