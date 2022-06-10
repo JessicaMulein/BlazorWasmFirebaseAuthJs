@@ -1,4 +1,4 @@
-﻿//FileName : firebaseJs.ts
+//FileName : firebaseJs.ts
 /// <reference types="node" />
 'use strict';
 declare global {
@@ -60,16 +60,12 @@ import {} from 'firebase/messaging';
 import {} from 'firebase/storage';
 import { auth as firebaseUiAuth } from 'firebaseui';
 import { FirebaseError } from 'firebase/app';
-import { IFirebaseJs } from './interfaces';
+import {
+    IFirebaseJs,
+    IFirebaseJsDataDatabaseValue,
+    IFirebaseJsDataFirestoreValue
+} from './interfaces';
 const _firebaseJs: IFirebaseJs = {
-    data: {
-        signedInUid: null,
-        lastUid: null,
-        isOnlineForDatabase: null,
-        isOnlineForFirestore: null,
-        isOfflineForDatabase: null,
-        isOfflineForFirestore: null
-    },
     app: null,
     auth: null,
     authStateChanged: async function (user: User) {
@@ -108,6 +104,34 @@ const _firebaseJs: IFirebaseJs = {
             });
         console.log(userJsonData);
         return userJsonData;
+    },
+    data: {
+        signedInUid: null,
+        lastUid: null,
+        isOnlineForDatabase: (): IFirebaseJsDataDatabaseValue => {
+            return {
+                state: 'online',
+                last_changed: dbServerTimestamp()
+            };
+        },
+        isOnlineForFirestore: (): IFirebaseJsDataFirestoreValue => {
+            return {
+                state: 'online',
+                last_changed: firestoreServerTimestamp()
+            };
+        },
+        isOfflineForDatabase: (): IFirebaseJsDataDatabaseValue => {
+            return {
+                state: 'offline',
+                last_changed: dbServerTimestamp()
+            };
+        },
+        isOfflineForFirestore: (): IFirebaseJsDataFirestoreValue => {
+            return {
+                state: 'offline',
+                last_changed: firestoreServerTimestamp()
+            };
+        }
     },
     database: null,
     dotNetFirebaseAuthReference: null,
@@ -176,23 +200,6 @@ const _firebaseJs: IFirebaseJs = {
             _firebaseJs.firestore = getFirestore(_firebaseJs.app);
             _firebaseJs.googleProvider = new GoogleAuthProvider();
             console.log(`Firebase app "${_firebaseJs.app.name}" loaded`);
-            // set up constants for later
-            _firebaseJs.data.isOnlineForDatabase = {
-                state: 'online',
-                last_changed: dbServerTimestamp()
-            };
-            _firebaseJs.data.isOnlineForFirestore = {
-                state: 'online',
-                last_changed: firestoreServerTimestamp()
-            };
-            _firebaseJs.data.isOfflineForDatabase = {
-                state: 'offline',
-                last_changed: dbServerTimestamp()
-            };
-            _firebaseJs.data.isOfflineForFirestore = {
-                state: 'offline',
-                last_changed: firestoreServerTimestamp()
-            };
             console.log('firebaseui loading');
             _firebaseJs.ui = new firebaseUiAuth.AuthUI(_firebaseJs.auth);
             console.log('firebaseui loaded', _firebaseJs.ui);
@@ -266,6 +273,93 @@ const _firebaseJs: IFirebaseJs = {
         console.log(userJsonData);
         return userJsonData;
     },
+    rtdbPresence: function () {
+        console.log('rtdbPresence');
+        // [START rtdb_presence]
+        // Fetch the current user's ID from Firebase Authentication.
+        const uid = _firebaseJs.auth.currentUser.uid;
+        console.log('rtdbPresence:uid', uid);
+
+        // Create a reference to the special '.info/connected' path in
+        // Realtime Database. This path returns `true` when connected
+        // and `false` when disconnected.
+        const infoRef = dbRef(_firebaseJs.database, '.info/connected');
+        dbOnValue(infoRef, async (snapshot) => {
+            console.log('dbOnValue:snapshot', snapshot);
+            // If we're not currently connected, don't do anything.
+            if (snapshot.val() == false) {
+                return;
+            }
+            // Create a reference to this user's specific status node.
+            // This is where we will store data about being online/offline.
+            const userStatusDatabaseRef = dbRef(_firebaseJs.database, '/status/' + uid);
+            const connection = dbPush(userStatusDatabaseRef);
+
+            // If we are currently connected, then use the 'onDisconnect()'
+            // method to add a set which will only trigger once this
+            // client has disconnected by closing the app,
+            // losing internet, or any other means.
+            dbOnDisconnect(connection)
+                .set(_firebaseJs.data.isOfflineForDatabase())
+                .then(function () {
+                    console.log('dbOnDisconnect, under snapshot', snapshot);
+                    // The promise returned from .onDisconnect().set() will
+                    // resolve as soon as the server acknowledges the onDisconnect()
+                    // request, NOT once we've actually disconnected:
+                    // https://firebase.google.com/docs/reference/js/firebase.database.OnDisconnect
+
+                    // We can now safely set ourselves as 'online' knowing that the
+                    // server will mark us as offline once we lose connection.
+                    dbSet(userStatusDatabaseRef, _firebaseJs.data.isOnlineForDatabase());
+                });
+        });
+        // [END rtdb_presence]
+    },
+    rtdbAndLocalFsPresence: function () {
+        console.log('rtdbAndLocalFsPresence');
+        // [START rtdb_and_local_fs_presence]
+        // [START_EXCLUDE]
+        const uid = _firebaseJs.auth.currentUser.uid;
+        console.log('rtdbAndLocalFsPresence:uid', uid);
+        // [END_EXCLUDE]
+        const userStatusFirestoreRef = firestoreDoc(
+            _firebaseJs.firestore,
+            '/status/' + uid
+        );
+        // Firestore uses a different server timestamp value, so we'll
+        // create two more constants for Firestore state.
+        const infoRef = dbRef(_firebaseJs.database, '.info/connected');
+        dbOnValue(infoRef, async (snapshot) => {
+            console.log('rtdbAndLocalFsPresence:dbOnValue:snapshot', snapshot);
+            const userStatusDatabaseRef = dbRef(_firebaseJs.database, '/status/' + uid);
+            if (snapshot.val() == false) {
+                // Instead of simply returning, we'll also set Firestore's state
+                // to 'offline'. This ensures that our Firestore cache is aware
+                // of the switch to 'offline.'
+                dbSet(userStatusDatabaseRef, _firebaseJs.data.isOfflineForDatabase());
+                firestoreSetDoc(
+                    userStatusFirestoreRef,
+                    _firebaseJs.data.isOfflineForFirestore()
+                );
+                return;
+            }
+            const connection = dbPush(userStatusDatabaseRef);
+            dbOnDisconnect(connection)
+                .set(_firebaseJs.data.isOfflineForDatabase())
+                .then(function () {
+                    console.log(
+                        'rtdbAndLocalFsPresence:dbOnDisconnect:snapshot',
+                        snapshot
+                    );
+                    dbSet(userStatusDatabaseRef, _firebaseJs.data.isOnlineForDatabase());
+                    firestoreSetDoc(
+                        userStatusFirestoreRef,
+                        _firebaseJs.data.isOnlineForFirestore()
+                    );
+                });
+        });
+        // [END rtdb_and_local_fs_presence]
+    },
     sendEmailVerification: async function () {
         if (!_firebaseJs.isInitialized()) {
             return;
@@ -296,6 +390,42 @@ const _firebaseJs: IFirebaseJs = {
             });
         return reset;
     },
+    setDatabaseUserStatus: function (user: UserInfo, status: boolean) {
+        const userStatusDatabaseRef = dbRef(_firebaseJs.database, '/status/' + user.uid);
+        dbSet(
+            userStatusDatabaseRef,
+            status
+                ? _firebaseJs.data.isOnlineForDatabase()
+                : _firebaseJs.data.isOfflineForDatabase()
+        );
+    },
+    setFirestoreUserStatus: function (user: UserInfo, status: boolean) {
+        const userStatusFirestoreRef = firestoreDoc(
+            _firebaseJs.firestore,
+            '/status/' + user.uid
+        );
+        firestoreSetDoc(
+            userStatusFirestoreRef,
+            status
+                ? _firebaseJs.data.isOnlineForFirestore()
+                : _firebaseJs.data.isOfflineForFirestore()
+        );
+    },
+    signInAnonymously: async function () {
+        console.log('signInAnonymously');
+        signInAnonymously(_firebaseJs.auth)
+            .then(async function () {
+                _firebaseJs.data.anonymousUser = _firebaseJs.auth.currentUser;
+                _firebaseJs.rtdbAndLocalFsPresence();
+                _firebaseJs.fsListenOnline();
+            })
+            .catch(function (err) {
+                console.warn(err);
+                console.warn(
+                    'Please enable Anonymous Authentication in your Firebase project!'
+                );
+            });
+    },
     signOut: async function () {
         if (!_firebaseJs.isInitialized()) {
             return false;
@@ -317,9 +447,68 @@ const _firebaseJs: IFirebaseJs = {
     uiConfigFactory: function () {
         return {
             callbacks: {
+                signInSuccessWithAuthResult: function (authResult, redirectUrl) {
+                    // Process result. This will not trigger on merge conflicts.
+                    // On success redirect to signInSuccessUrl.
+                    return true;
+                },
                 // signInFailure callback must be provided to handle merge conflicts which
                 // occur when an existing credential is linked to an anonymous user.
                 signInFailure: function (error: firebaseUiAuth.AuthUIError) {
+                    // For merge conflicts, the error.code will be
+                    // 'firebaseui/anonymous-upgrade-merge-conflict'.
+                    if (error.code != 'firebaseui/anonymous-upgrade-merge-conflict') {
+                        return Promise.resolve();
+                    }
+                    // The credential the user tried to sign in with.
+                    const cred: UserCredential = error.credential;
+                    return dbRef(
+                        _firebaseJs.database,
+                        'users/' + _firebaseJs.auth.currentUser.uid
+                    )
+                        .once('value')
+                        .then(function (
+                            snapshot: firestoreQuerySnapshot<firestoreDocumentData>
+                        ) {
+                            _firebaseJs.data.anonymousUserData = snapshot.val();
+                            // This will trigger onAuthStateChanged listener which
+                            // could trigger a redirect to another page.
+                            // Ensure the upgrade flow is not interrupted by that callback
+                            // and that this is given enough time to complete before
+                            // redirection.
+                            return signInWithCredential(
+                                _firebaseJs.auth,
+                                Promise.resolve(cred)
+                            );
+                        })
+                        .then(function (user) {
+                            // Original Anonymous Auth instance now has the new user.
+                            return dbSet(
+                                dbRef(_firebaseJs.database, 'users/' + user.uid),
+                                _firebaseJs.data.anonymousUserData
+                            );
+                        })
+                        .then(function () {
+                            // Delete anonymnous user.
+                            return _firebaseJs.data.anonymousUser.delete();
+                        })
+                        .then(function () {
+                            // Clear data in case a new user signs in, and the state change
+                            // triggers.
+                            _firebaseJs.data.anonymousUserData = null;
+                            // FirebaseUI will reset and the UI cleared when this promise
+                            // resolves.
+                            // signInSuccessWithAuthResult will not run. Successful sign-in
+                            // logic has to be run explicitly.
+                            window.location.assign(
+                                _firebaseJs.uiConfigFromStorage.signInSuccessUrl
+                            );
+                        });
+                }
+                /*,
+                // signInFailure callback must be provided to handle merge conflicts which
+                // occur when an existing credential is linked to an anonymous user.
+                signInFailureX: function (error: firebaseUiAuth.AuthUIError) {
                     // For merge conflicts, the error.code will be
                     // 'firebaseui/anonymous-upgrade-merge-conflict'.
                     if (error.code != 'firebaseui/anonymous-upgrade-merge-conflict') {
@@ -333,7 +522,7 @@ const _firebaseJs: IFirebaseJs = {
                     // Finish sign-in after data is copied.
                     throw new Error('not implemented');
                     //return signInWithCredential(_firebaseJs.auth, Promise.resolve(cred));
-                }
+                }*/
             },
             signInSuccessUrl: _firebaseJs.uiConfigFromStorage.signInSuccessUrl,
             signInOptions: [
@@ -375,128 +564,6 @@ const _firebaseJs: IFirebaseJs = {
                 updated = false;
             });
         return updated;
-    },
-    rtdbPresence: function () {
-        console.log('rtdbPresence');
-        // [START rtdb_presence]
-        // Fetch the current user's ID from Firebase Authentication.
-        const uid = _firebaseJs.auth.currentUser.uid;
-        console.log('rtdbPresence:uid', uid);
-
-        // Create a reference to the special '.info/connected' path in
-        // Realtime Database. This path returns `true` when connected
-        // and `false` when disconnected.
-        const infoRef = dbRef(_firebaseJs.database, '.info/connected');
-        dbOnValue(infoRef, async (snapshot) => {
-            console.log('dbOnValue:snapshot', snapshot);
-            // If we're not currently connected, don't do anything.
-            if (snapshot.val() == false) {
-                return;
-            }
-            // Create a reference to this user's specific status node.
-            // This is where we will store data about being online/offline.
-            const userStatusDatabaseRef = dbRef(_firebaseJs.database, '/status/' + uid);
-            const connection = dbPush(userStatusDatabaseRef);
-
-            // If we are currently connected, then use the 'onDisconnect()'
-            // method to add a set which will only trigger once this
-            // client has disconnected by closing the app,
-            // losing internet, or any other means.
-            dbOnDisconnect(connection)
-                .set(_firebaseJs.data.isOfflineForDatabase)
-                .then(function () {
-                    console.log('dbOnDisconnect, under snapshot', snapshot);
-                    // The promise returned from .onDisconnect().set() will
-                    // resolve as soon as the server acknowledges the onDisconnect()
-                    // request, NOT once we've actually disconnected:
-                    // https://firebase.google.com/docs/reference/js/firebase.database.OnDisconnect
-
-                    // We can now safely set ourselves as 'online' knowing that the
-                    // server will mark us as offline once we lose connection.
-                    dbSet(userStatusDatabaseRef, _firebaseJs.data.isOnlineForDatabase);
-                });
-        });
-        // [END rtdb_presence]
-    },
-    rtdbAndLocalFsPresence: function () {
-        console.log('rtdbAndLocalFsPresence');
-        // [START rtdb_and_local_fs_presence]
-        // [START_EXCLUDE]
-        const uid = _firebaseJs.auth.currentUser.uid;
-        console.log('rtdbAndLocalFsPresence:uid', uid);
-        // [END_EXCLUDE]
-        const userStatusFirestoreRef = firestoreDoc(
-            _firebaseJs.firestore,
-            '/status/' + uid
-        );
-        // Firestore uses a different server timestamp value, so we'll
-        // create two more constants for Firestore state.
-        const infoRef = dbRef(_firebaseJs.database, '.info/connected');
-        dbOnValue(infoRef, async (snapshot) => {
-            console.log('rtdbAndLocalFsPresence:dbOnValue:snapshot', snapshot);
-            const userStatusDatabaseRef = dbRef(_firebaseJs.database, '/status/' + uid);
-            if (snapshot.val() == false) {
-                // Instead of simply returning, we'll also set Firestore's state
-                // to 'offline'. This ensures that our Firestore cache is aware
-                // of the switch to 'offline.'
-                dbSet(userStatusDatabaseRef, _firebaseJs.data.isOfflineForDatabase);
-                firestoreSetDoc(
-                    userStatusFirestoreRef,
-                    _firebaseJs.data.isOfflineForFirestore
-                );
-                return;
-            }
-            const connection = dbPush(userStatusDatabaseRef);
-            dbOnDisconnect(connection)
-                .set(_firebaseJs.data.isOfflineForDatabase)
-                .then(function () {
-                    console.log(
-                        'rtdbAndLocalFsPresence:dbOnDisconnect:snapshot',
-                        snapshot
-                    );
-                    dbSet(userStatusDatabaseRef, _firebaseJs.data.isOnlineForDatabase);
-                    firestoreSetDoc(
-                        userStatusFirestoreRef,
-                        _firebaseJs.data.isOnlineForFirestore
-                    );
-                });
-        });
-        // [END rtdb_and_local_fs_presence]
-    },
-    setDatabaseUserStatus: function (user: UserInfo, status: boolean) {
-        const userStatusDatabaseRef = dbRef(_firebaseJs.database, '/status/' + user.uid);
-        dbSet(
-            userStatusDatabaseRef,
-            status
-                ? _firebaseJs.data.isOnlineForDatabase
-                : _firebaseJs.data.isOfflineForDatabase
-        );
-    },
-    setFirestoreUserStatus: function (user: UserInfo, status: boolean) {
-        const userStatusFirestoreRef = firestoreDoc(
-            _firebaseJs.firestore,
-            '/status/' + user.uid
-        );
-        firestoreSetDoc(
-            userStatusFirestoreRef,
-            status
-                ? _firebaseJs.data.isOnlineForFirestore
-                : _firebaseJs.data.isOfflineForFirestore
-        );
-    },
-    signInAnonymously: async function () {
-        console.log('signInAnonymously');
-        signInAnonymously(_firebaseJs.auth)
-            .then(async function () {
-                _firebaseJs.rtdbAndLocalFsPresence();
-                _firebaseJs.fsListenOnline();
-            })
-            .catch(function (err) {
-                console.warn(err);
-                console.warn(
-                    'Please enable Anonymous Authentication in your Firebase project!'
-                );
-            });
     }
 };
 

@@ -15,12 +15,14 @@ interface IFirebaseJsDataFirestoreValue {
 }
 
 interface IFirebaseJsData {
+    anonymousUser?: User;
+    anonymousUserData?: firestoreQuerySnapshot<firestoreDocumentData>;
     signedInUid?: string;
     lastUid?: string;
-    isOfflineForDatabase?: IFirebaseJsDataDatabaseValue;
-    isOnlineForDatabase?: IFirebaseJsDataDatabaseValue;
-    isOfflineForFirestore?: IFirebaseJsDataFirestoreValue;
-    isOnlineForFirestore?: IFirebaseJsDataFirestoreValue;
+    isOfflineForDatabase?: () => IFirebaseJsDataDatabaseValue;
+    isOnlineForDatabase?: () => IFirebaseJsDataDatabaseValue;
+    isOfflineForFirestore?: () => IFirebaseJsDataFirestoreValue;
+    isOnlineForFirestore?: () => IFirebaseJsDataFirestoreValue;
 }
 
 interface IFirebaseUiConfigSimple {
