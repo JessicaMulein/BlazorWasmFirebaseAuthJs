@@ -43,7 +43,6 @@
     <Folder Include="dist\" />
     <Folder Include="functions" />
     <Folder Include="public" />
-    <Folder Include="src" />
   </ItemGroup>
 	<Target Name="EnsureNpmRestored" Condition="!Exists('node_modules')">
 		<Message Importance="high" Text="Restoring dependencies using 'npm'. This may take several minutes..." />
@@ -51,6 +50,9 @@
 	</Target>
 	<ItemGroup>
 		<WebpackInputs Include="src\**\*.ts" Exclude="dist\**;node_modules\**; **\*.d.ts" />
+	</ItemGroup>
+	<ItemGroup>
+	  <None Include="src\interfaces.d.ts" />
 	</ItemGroup>
 	<Target Name="RunWebpack" AfterTargets="PreBuildEvent" Inputs="@(WebpackInputs)" Outputs="dist\firebaseJs-bundle.js" DependsOnTargets="EnsureNpmRestored">
 		<Message Text="Executing CoreBuild for firebaseJs" />

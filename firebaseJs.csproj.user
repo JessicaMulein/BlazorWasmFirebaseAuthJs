@@ -3,4 +3,9 @@
   <PropertyGroup>
     <LastActiveSolutionConfig>Debug|Any CPU</LastActiveSolutionConfig>
   </PropertyGroup>
+  <ItemGroup>
+    <None Update="src\interfaces.d.ts">
+      <SubType>Code</SubType>
+    </None>
+  </ItemGroup>
 </Project>
