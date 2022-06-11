@@ -56,9 +56,9 @@ interface IFirebaseJs {
     rtdbAndLocalFsPresence: () => any;
     sendEmailVerification: () => Promise<boolean | null>;
     sendEmailPasswordReset: (email: string) => Promise<boolean>;
-    setDatabaseUserStatus: (user: UserInfo, status: boolean) => any;
-    setFirestoreUserStatus: (user: UserInfo, status: boolean) => any;
-    setUserStatus: (user: UserInfo, status: boolean) => any;
+    setDatabaseUserStatus: (user: User, status: boolean) => any;
+    setFirestoreUserStatus: (user: User, status: boolean) => any;
+    setUserStatus: (user: User, status: boolean) => any;
     signInAnonymously: () => Promise<any>;
     signOut: () => Promise<boolean>;
     ui?: firebaseUiAuth.AuthUI;

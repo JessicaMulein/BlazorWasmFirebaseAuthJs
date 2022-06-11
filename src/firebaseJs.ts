@@ -427,7 +427,7 @@ const _firebaseJs: IFirebaseJs = {
             });
         return reset;
     },
-    setDatabaseUserStatus: function (user: UserInfo, status: boolean) {
+    setDatabaseUserStatus: function (user: User, status: boolean) {
         const userStatusDatabaseRef = dbRef(_firebaseJs.database, '/status/' + user.uid);
         dbSet(
             userStatusDatabaseRef,
@@ -436,7 +436,7 @@ const _firebaseJs: IFirebaseJs = {
                 : _firebaseJs.data.isOfflineForDatabase()
         );
     },
-    setFirestoreUserStatus: function (user: UserInfo, status: boolean) {
+    setFirestoreUserStatus: function (user: User, status: boolean) {
         const userStatusFirestoreRef = firestoreDoc(
             _firebaseJs.firestore,
             '/status/' + user.uid
@@ -448,7 +448,7 @@ const _firebaseJs: IFirebaseJs = {
                 : _firebaseJs.data.isOfflineForFirestore()
         );
     },
-    setUserStatus(user: UserInfo, status: boolean) {
+    setUserStatus(user: User, status: boolean) {
         _firebaseJs.setDatabaseUserStatus(user, status);
         _firebaseJs.setFirestoreUserStatus(user, status);
     },
