@@ -58,6 +58,7 @@ interface IFirebaseJs {
     sendEmailPasswordReset: (email: string) => Promise<boolean>;
     setDatabaseUserStatus: (user: UserInfo, status: boolean) => any;
     setFirestoreUserStatus: (user: UserInfo, status: boolean) => any;
+    setUserStatus: (user: UserInfo, status: boolean) => any;
     signInAnonymously: () => Promise<any>;
     signOut: () => Promise<boolean>;
     ui?: firebaseUiAuth.AuthUI;

@@ -448,6 +448,10 @@ const _firebaseJs: IFirebaseJs = {
                 : _firebaseJs.data.isOfflineForFirestore()
         );
     },
+    setUserStatus(user: UserInfo, status: boolean) {
+        _firebaseJs.setDatabaseUserStatus(user, status);
+        _firebaseJs.setFirestoreUserStatus(user, status);
+    },
     signInAnonymously: async function () {
         if (!_firebaseJs.data.allowAnonymous) {
             console.log('signInAnonymously: disabled. returning.');
@@ -471,6 +475,7 @@ const _firebaseJs: IFirebaseJs = {
         if (!_firebaseJs.isInitialized()) {
             return false;
         }
+        _firebaseJs.setUserStatus(_firebaseJs.auth.currentUser, false);
         let result = null;
         signOut(_firebaseJs.auth)
             .then(() => {
