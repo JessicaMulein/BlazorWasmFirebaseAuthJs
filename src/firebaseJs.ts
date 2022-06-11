@@ -6,7 +6,6 @@ declare global {
         firebaseJs: any;
     }
 }
-
 import * as firebase from 'firebase/app';
 import {
     getAuth,
@@ -66,6 +65,14 @@ import {
     IFirebaseJsDataFirestoreValue
 } from './interfaces';
 const _firebaseJs: IFirebaseJs = {
+    activatePresence: (): void => {
+        if (_firebaseJs.data.presenceActive) {
+            return;
+        }
+        _firebaseJs.rtdbAndLocalFsPresence();
+        _firebaseJs.fsListenOnline();
+        _firebaseJs.data.presenceActive = true;
+    },
     app: null,
     auth: null,
     authStateChanged: async function (user: User) {
@@ -80,6 +87,13 @@ const _firebaseJs: IFirebaseJs = {
         );
         console.log('auth state changed invoked');
         if (user !== null && user !== undefined) {
+            if (
+                _firebaseJs.data.signedInUid === null &&
+                !_firebaseJs.data.presenceActive
+            ) {
+                _firebaseJs.activatePresence();
+            }
+            _firebaseJs.data.lastUid = _firebaseJs.data.signedInUid;
             _firebaseJs.data.signedInUid = user.uid;
         } else {
             if (_firebaseJs.data.signedInUid !== null) {
@@ -98,6 +112,7 @@ const _firebaseJs: IFirebaseJs = {
             .then(async (userCredential) => {
                 userJsonData = JSON.stringify(userCredential.user);
                 await _firebaseJs.authStateChanged(userCredential.user);
+                _firebaseJs.activatePresence();
             })
             .catch((e) => {
                 console.error(e);
@@ -106,6 +121,9 @@ const _firebaseJs: IFirebaseJs = {
         return userJsonData;
     },
     data: {
+        allowAnonymous: false,
+        anonymousUser: null,
+        anonymousUserData: null,
         signedInUid: null,
         lastUid: null,
         isOnlineForDatabase: (): IFirebaseJsDataDatabaseValue => {
@@ -131,12 +149,16 @@ const _firebaseJs: IFirebaseJs = {
                 state: 'offline',
                 last_changed: firestoreServerTimestamp()
             };
-        }
+        },
+        presenceActive: false
     },
     database: null,
     dotNetFirebaseAuthReference: null,
     firestore: null,
     fsListen: function () {
+        if (_firebaseJs.data.presenceActive) {
+            return;
+        }
         console.log('fsListen');
         // [START fs_onsnapshot]
         firestoreOnSnapshot(
@@ -149,6 +171,9 @@ const _firebaseJs: IFirebaseJs = {
         // [END fs_onsnapshot]
     },
     fsListenOnline: function () {
+        if (_firebaseJs.data.presenceActive) {
+            return;
+        }
         console.log('fsListenOnline');
         // [START fs_onsnapshot_online]
         firestoreOnSnapshot(
@@ -205,7 +230,9 @@ const _firebaseJs: IFirebaseJs = {
             console.log('firebaseui loaded', _firebaseJs.ui);
             _firebaseJs.ui.start('#firebaseui-auth-container', uiConfig);
             console.log('firebaseui started', uiConfig);
-            await _firebaseJs.signInAnonymously();
+            if (_firebaseJs.data.allowAnonymous) {
+                await _firebaseJs.signInAnonymously();
+            }
         } catch (e) {
             console.error(e);
         }
@@ -234,6 +261,8 @@ const _firebaseJs: IFirebaseJs = {
                 // Signed in
                 userJsonData = JSON.stringify(userCredential.user);
                 await _firebaseJs.authStateChanged(userCredential.user);
+                console.log('loginWithEmail: starting presence');
+                _firebaseJs.activatePresence();
             })
             .catch(async (error) => {
                 const errorCode = error.code;
@@ -258,6 +287,8 @@ const _firebaseJs: IFirebaseJs = {
                 const user = result.user;
                 userJsonData = JSON.stringify(user);
                 await _firebaseJs.authStateChanged(result.user);
+                console.log('loginWithGooglePopup: starting presence');
+                _firebaseJs.activatePresence();
             })
             .catch(async (error) => {
                 // Handle Errors here.
@@ -274,6 +305,9 @@ const _firebaseJs: IFirebaseJs = {
         return userJsonData;
     },
     rtdbPresence: function () {
+        if (_firebaseJs.data.presenceActive) {
+            return;
+        }
         console.log('rtdbPresence');
         // [START rtdb_presence]
         // Fetch the current user's ID from Firebase Authentication.
@@ -316,6 +350,9 @@ const _firebaseJs: IFirebaseJs = {
         // [END rtdb_presence]
     },
     rtdbAndLocalFsPresence: function () {
+        if (_firebaseJs.data.presenceActive) {
+            return;
+        }
         console.log('rtdbAndLocalFsPresence');
         // [START rtdb_and_local_fs_presence]
         // [START_EXCLUDE]
@@ -412,12 +449,16 @@ const _firebaseJs: IFirebaseJs = {
         );
     },
     signInAnonymously: async function () {
+        if (!_firebaseJs.data.allowAnonymous) {
+            console.log('signInAnonymously: disabled. returning.');
+            return;
+        }
         console.log('signInAnonymously');
         signInAnonymously(_firebaseJs.auth)
             .then(async function () {
                 _firebaseJs.data.anonymousUser = _firebaseJs.auth.currentUser;
-                _firebaseJs.rtdbAndLocalFsPresence();
-                _firebaseJs.fsListenOnline();
+                console.log('signInAnonymously: starting presence');
+                _firebaseJs.activatePresence();
             })
             .catch(function (err) {
                 console.warn(err);
@@ -447,7 +488,10 @@ const _firebaseJs: IFirebaseJs = {
     uiConfigFactory: function () {
         return {
             callbacks: {
-                signInSuccessWithAuthResult: function (authResult, redirectUrl) {
+                signInSuccessWithAuthResult: function (
+                    authResult: any,
+                    redirectUrl: string
+                ) {
                     // Process result. This will not trigger on merge conflicts.
                     // On success redirect to signInSuccessUrl.
                     return true;
@@ -455,74 +499,8 @@ const _firebaseJs: IFirebaseJs = {
                 // signInFailure callback must be provided to handle merge conflicts which
                 // occur when an existing credential is linked to an anonymous user.
                 signInFailure: function (error: firebaseUiAuth.AuthUIError) {
-                    // For merge conflicts, the error.code will be
-                    // 'firebaseui/anonymous-upgrade-merge-conflict'.
-                    if (error.code != 'firebaseui/anonymous-upgrade-merge-conflict') {
-                        return Promise.resolve();
-                    }
-                    // The credential the user tried to sign in with.
-                    const cred: UserCredential = error.credential;
-                    return dbRef(
-                        _firebaseJs.database,
-                        'users/' + _firebaseJs.auth.currentUser.uid
-                    )
-                        .once('value')
-                        .then(function (
-                            snapshot: firestoreQuerySnapshot<firestoreDocumentData>
-                        ) {
-                            _firebaseJs.data.anonymousUserData = snapshot.val();
-                            // This will trigger onAuthStateChanged listener which
-                            // could trigger a redirect to another page.
-                            // Ensure the upgrade flow is not interrupted by that callback
-                            // and that this is given enough time to complete before
-                            // redirection.
-                            return signInWithCredential(
-                                _firebaseJs.auth,
-                                Promise.resolve(cred)
-                            );
-                        })
-                        .then(function (user) {
-                            // Original Anonymous Auth instance now has the new user.
-                            return dbSet(
-                                dbRef(_firebaseJs.database, 'users/' + user.uid),
-                                _firebaseJs.data.anonymousUserData
-                            );
-                        })
-                        .then(function () {
-                            // Delete anonymnous user.
-                            return _firebaseJs.data.anonymousUser.delete();
-                        })
-                        .then(function () {
-                            // Clear data in case a new user signs in, and the state change
-                            // triggers.
-                            _firebaseJs.data.anonymousUserData = null;
-                            // FirebaseUI will reset and the UI cleared when this promise
-                            // resolves.
-                            // signInSuccessWithAuthResult will not run. Successful sign-in
-                            // logic has to be run explicitly.
-                            window.location.assign(
-                                _firebaseJs.uiConfigFromStorage.signInSuccessUrl
-                            );
-                        });
+                    return Promise.resolve();
                 }
-                /*,
-                // signInFailure callback must be provided to handle merge conflicts which
-                // occur when an existing credential is linked to an anonymous user.
-                signInFailureX: function (error: firebaseUiAuth.AuthUIError) {
-                    // For merge conflicts, the error.code will be
-                    // 'firebaseui/anonymous-upgrade-merge-conflict'.
-                    if (error.code != 'firebaseui/anonymous-upgrade-merge-conflict') {
-                        return Promise.resolve();
-                    }
-                    // The credential the user tried to sign in with.
-                    const cred: UserCredential = error.credential;
-                    // Copy data from anonymous user to permanent user and delete anonymous
-                    // user.
-                    // ...
-                    // Finish sign-in after data is copied.
-                    throw new Error('not implemented');
-                    //return signInWithCredential(_firebaseJs.auth, Promise.resolve(cred));
-                }*/
             },
             signInSuccessUrl: _firebaseJs.uiConfigFromStorage.signInSuccessUrl,
             signInOptions: [
@@ -531,8 +509,8 @@ const _firebaseJs: IFirebaseJs = {
                 TwitterAuthProvider.PROVIDER_ID,
                 GithubAuthProvider.PROVIDER_ID,
                 EmailAuthProvider.PROVIDER_ID,
-                PhoneAuthProvider.PROVIDER_ID,
-                firebaseUiAuth.AnonymousAuthProvider.PROVIDER_ID
+                PhoneAuthProvider.PROVIDER_ID
+                //firebaseUiAuth.AnonymousAuthProvider.PROVIDER_ID
             ],
             // tosUrl and privacyPolicyUrl accept either url string or a callback
             // function.
@@ -542,7 +520,7 @@ const _firebaseJs: IFirebaseJs = {
             privacyPolicyUrl: function () {
                 window.location.assign(_firebaseJs.uiConfigFromStorage.privacyPolicyUrl);
             },
-            autoUpgradeAnonymousUsers: true
+            autoUpgradeAnonymousUsers: false
         };
     },
     uiConfigFromStorage: null,

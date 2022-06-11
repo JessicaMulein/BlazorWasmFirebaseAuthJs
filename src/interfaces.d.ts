@@ -15,10 +15,12 @@ interface IFirebaseJsDataFirestoreValue {
 }
 
 interface IFirebaseJsData {
+    allowAnonymous: boolean;
     anonymousUser?: User;
     anonymousUserData?: firestoreQuerySnapshot<firestoreDocumentData>;
     signedInUid?: string;
     lastUid?: string;
+    presenceActive: boolean;
     isOfflineForDatabase?: () => IFirebaseJsDataDatabaseValue;
     isOnlineForDatabase?: () => IFirebaseJsDataDatabaseValue;
     isOfflineForFirestore?: () => IFirebaseJsDataFirestoreValue;
@@ -33,6 +35,7 @@ interface IFirebaseUiConfigSimple {
 }
 
 interface IFirebaseJs {
+    activatePresence: () => void;
     data: IFirebaseJsData;
     app?: FirebaseApp;
     auth?: Auth;
