@@ -491,6 +491,17 @@ const _firebaseJs: IFirebaseJs = {
     ui: null,
     uiConfig: null,
     uiConfigFactory: function () {
+        const _signInOptions: string[] = [
+            GoogleAuthProvider.PROVIDER_ID,
+            FacebookAuthProvider.PROVIDER_ID,
+            TwitterAuthProvider.PROVIDER_ID,
+            GithubAuthProvider.PROVIDER_ID,
+            EmailAuthProvider.PROVIDER_ID,
+            PhoneAuthProvider.PROVIDER_ID
+        ];
+        if (_firebaseJs.data.allowAnonymous) {
+            _signInOptions.push(firebaseUiAuth.AnonymousAuthProvider.PROVIDER_ID);
+        }
         return {
             callbacks: {
                 signInSuccessWithAuthResult: function (
@@ -508,15 +519,7 @@ const _firebaseJs: IFirebaseJs = {
                 }
             },
             signInSuccessUrl: _firebaseJs.uiConfigFromStorage.signInSuccessUrl,
-            signInOptions: [
-                GoogleAuthProvider.PROVIDER_ID,
-                FacebookAuthProvider.PROVIDER_ID,
-                TwitterAuthProvider.PROVIDER_ID,
-                GithubAuthProvider.PROVIDER_ID,
-                EmailAuthProvider.PROVIDER_ID,
-                PhoneAuthProvider.PROVIDER_ID
-                //firebaseUiAuth.AnonymousAuthProvider.PROVIDER_ID
-            ],
+            signInOptions: _signInOptions,
             // tosUrl and privacyPolicyUrl accept either url string or a callback
             // function.
             // Terms of service url/callback.
