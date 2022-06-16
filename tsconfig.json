@@ -20,6 +20,8 @@
     "src/firebaseJs.ts"
   ],
   "exclude": [
+    "obj/",
+    "bin/",
     "node_modules",
     "build/**/*"
   ],

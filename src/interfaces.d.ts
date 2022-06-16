@@ -1,4 +1,5 @@
 /// <reference types="node" />
+'use strict';
 import { FirebaseApp } from 'firebase/app';
 import { Auth, GoogleAuthProvider, User, UserInfo } from 'firebase/auth';
 import { Database } from 'firebase/database';
@@ -37,7 +38,8 @@ interface IFirebaseUiConfigSimple {
 interface IFirebaseJs {
     activatePresence: () => void;
     data: IFirebaseJsData;
-    app?: FirebaseApp;
+    firebaseHosting: boolean;
+    firebaseApp?: FirebaseApp;
     auth?: Auth;
     authStateChanged: (user: User) => any;
     config?: object;

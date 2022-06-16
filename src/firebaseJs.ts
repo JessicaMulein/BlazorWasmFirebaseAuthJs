@@ -1,11 +1,6 @@
 //FileName : firebaseJs.ts
 /// <reference types="node" />
 'use strict';
-declare global {
-    interface Window {
-        firebaseJs: any;
-    }
-}
 import * as firebase from 'firebase/app';
 import {
     getAuth,
@@ -58,12 +53,20 @@ import {
 import {} from 'firebase/messaging';
 import {} from 'firebase/storage';
 import { auth as firebaseUiAuth } from 'firebaseui';
-import { FirebaseError } from 'firebase/app';
+import { FirebaseApp, FirebaseError } from 'firebase/app';
 import {
     IFirebaseJs,
     IFirebaseJsDataDatabaseValue,
     IFirebaseJsDataFirestoreValue
 } from './interfaces';
+declare global {
+    interface Window {
+        firebaseJs: any;
+        firebase: {
+            apps: [FirebaseApp];
+        };
+    }
+}
 const _firebaseJs: IFirebaseJs = {
     activatePresence: (): void => {
         if (_firebaseJs.data.presenceActive) {
@@ -73,7 +76,16 @@ const _firebaseJs: IFirebaseJs = {
         _firebaseJs.fsListenOnline();
         _firebaseJs.data.presenceActive = true;
     },
-    app: null,
+    firebaseApp:
+        window.firebase !== undefined &&
+        window.firebase.apps !== undefined &&
+        window.firebase.apps.length > 0
+            ? window.firebase.apps[0]
+            : null,
+    firebaseHosting:
+        window.firebase !== undefined &&
+        window.firebase.apps !== undefined &&
+        window.firebase.apps.length > 0,
     auth: null,
     authStateChanged: async function (user: User) {
         console.log('authStateChanged', user);
@@ -219,12 +231,14 @@ const _firebaseJs: IFirebaseJs = {
                 atob(firebaseUiConfigJsonDiv.innerText)
             );
             const uiConfig: firebaseUiAuth.Config = _firebaseJs.uiConfigFactory();
-            _firebaseJs.app = firebase.initializeApp(_firebaseJs.config);
+            if (!_firebaseJs.firebaseHosting) {
+                _firebaseJs.firebaseApp = firebase.initializeApp(_firebaseJs.config);
+            }
             _firebaseJs.auth = getAuth();
             _firebaseJs.database = getDatabase();
-            _firebaseJs.firestore = getFirestore(_firebaseJs.app);
+            _firebaseJs.firestore = getFirestore(_firebaseJs.firebaseApp);
             _firebaseJs.googleProvider = new GoogleAuthProvider();
-            console.log(`Firebase app "${_firebaseJs.app.name}" loaded`);
+            console.log(`Firebase app "${_firebaseJs.firebaseApp.name}" loaded`);
             console.log('firebaseui loading');
             _firebaseJs.ui = new firebaseUiAuth.AuthUI(_firebaseJs.auth);
             console.log('firebaseui loaded', _firebaseJs.ui);

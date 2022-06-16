@@ -6,3 +6,6 @@ dist
 node_modules
 # firebaseJs functions is trash
 functions
+# builds
+bin
+obj
