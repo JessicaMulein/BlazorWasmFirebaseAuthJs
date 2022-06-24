@@ -1,11 +1,7 @@
 //FileName : firebaseJs.ts
 /// <reference types="node" />
 'use strict';
-declare global {
-    interface Window {
-        firebaseJs: any;
-    }
-}
+import { ConfigurationHelper } from './configurationHelper';
 import * as firebase from 'firebase/app';
 import {
     getAuth,
@@ -58,127 +54,203 @@ import {
 import {} from 'firebase/messaging';
 import {} from 'firebase/storage';
 import { auth as firebaseUiAuth } from 'firebaseui';
-import { FirebaseError } from 'firebase/app';
+import { FirebaseApp, FirebaseError, FirebaseOptions } from 'firebase/app';
 import {
     IFirebaseJs,
+    IFirebaseJsData,
     IFirebaseJsDataDatabaseValue,
-    IFirebaseJsDataFirestoreValue
+    IFirebaseJsDataFirestoreValue,
+    IFirebaseUiConfigSimple,
+    IFirebaseWindow
 } from './interfaces';
-const _firebaseJs: IFirebaseJs = {
-    activatePresence: (): void => {
-        if (_firebaseJs.data.presenceActive) {
+export class FirebaseJs implements IFirebaseJs {
+    constructor(dotNetObjectReference: DotNet.DotNetObject, firebaseApp: FirebaseApp) {
+        this.dotNetFirebaseAuthReference = dotNetObjectReference;
+        this.app = firebaseApp;
+        this.auth = null;
+        this.config = firebaseApp.options;
+        this.data = {
+            allowAnonymous: false,
+            anonymousUser: null,
+            anonymousUserData: null,
+            signedInUid: null,
+            lastUid: null,
+            isOnlineForDatabase: (): IFirebaseJsDataDatabaseValue => {
+                return {
+                    state: 'online',
+                    last_changed: dbServerTimestamp()
+                };
+            },
+            isOnlineForFirestore: (): IFirebaseJsDataFirestoreValue => {
+                return {
+                    state: 'online',
+                    last_changed: firestoreServerTimestamp()
+                };
+            },
+            isOfflineForDatabase: (): IFirebaseJsDataDatabaseValue => {
+                return {
+                    state: 'offline',
+                    last_changed: dbServerTimestamp()
+                };
+            },
+            isOfflineForFirestore: (): IFirebaseJsDataFirestoreValue => {
+                return {
+                    state: 'offline',
+                    last_changed: firestoreServerTimestamp()
+                };
+            },
+            presenceActive: false
+        };
+        this.database = null;
+        this.firestore = null;
+        this.firebaseJs = null;
+        this.googleProvider = null;
+        this.ui = null;
+        this.uiConfig = null;
+        this.uiConfigFromStorage = null;
+        if (this.dotNetFirebaseAuthReference !== null) {
+            console.log('Firebase already initialized, skipping');
             return;
         }
-        _firebaseJs.rtdbAndLocalFsPresence();
-        _firebaseJs.fsListenOnline();
-        _firebaseJs.data.presenceActive = true;
-    },
-    app: null,
-    auth: null,
-    authStateChanged: async function (user: User) {
+        try {
+            // Initialize Firebase
+            this.dotNetFirebaseAuthReference = dotNetObjectReference;
+            const firebaseConfigJsonDiv: HTMLElement | null =
+                document.getElementById('firebaseConfig');
+            if (firebaseConfigJsonDiv === null) {
+                console.error('firebaseConfig div not found');
+                return;
+            }
+            this.config = JSON.parse(atob(firebaseConfigJsonDiv.innerText));
+            const firebaseUiConfigJsonDiv: HTMLElement | null =
+                document.getElementById('firebaseUiConfig');
+            if (firebaseUiConfigJsonDiv === null) {
+                console.error('firebaseUiConfig div not found');
+                return;
+            }
+            this.uiConfigFromStorage = JSON.parse(
+                atob(firebaseUiConfigJsonDiv.innerText)
+            );
+            if (this.uiConfigFactory === null) {
+                throw new Error('could not parse uiConfig from storage');
+            }
+            const uiConfig: firebaseUiAuth.Config = this.uiConfigFactory();
+            this.auth = getAuth();
+            this.database = getDatabase();
+            this.firestore = getFirestore(this.app);
+            this.googleProvider = new GoogleAuthProvider();
+            console.log(`Firebase app "${this.app.name}" loaded`);
+            console.log('firebaseui loading');
+            this.ui = new firebaseUiAuth.AuthUI(this.auth);
+            console.log('firebaseui loaded', this.ui);
+            this.ui.start('#firebaseui-auth-container', uiConfig);
+            console.log('firebaseui started', uiConfig);
+            if (this.data.allowAnonymous) {
+                async () => {
+                    await this.signInAnonymously();
+                };
+            }
+        } catch (e) {
+            console.error(e);
+        }
+        if (this.auth === null) {
+            throw new Error('auth is null');
+        }
+        try {
+            // add observer to auth state changed
+            onAuthStateChanged(this.auth, this.authStateChanged);
+        } catch (e) {
+            console.error('Error setting up auth state listener', e);
+        }
+    }
+    data: IFirebaseJsData;
+    app: FirebaseApp | null;
+    auth: Auth | null;
+    config: FirebaseOptions;
+    database: Database | null;
+    dotNetFirebaseAuthReference: DotNet.DotNetObject | null;
+    firestore: Firestore | null;
+    firebaseJs: FirebaseJs | null;
+    googleProvider: GoogleAuthProvider | null;
+    ui: firebaseUiAuth.AuthUI | null;
+    uiConfigFromStorage: IFirebaseUiConfigSimple | null;
+    uiConfig: firebaseUiAuth.Config | null;
+    activatePresence() {
+        if (this.data.presenceActive) {
+            return;
+        }
+        this.rtdbAndLocalFsPresence();
+        this.fsListenOnline();
+        this.data.presenceActive = true;
+    }
+    async authStateChanged(user: User | null): Promise<void> {
         console.log('authStateChanged', user);
-        if (!_firebaseJs.isInitialized()) {
+        if (!this.isInitialized() || this.dotNetFirebaseAuthReference === null) {
             return;
         }
         console.log('invoking C# OnAuthStateChanged', user);
-        await _firebaseJs.dotNetFirebaseAuthReference.invokeMethodAsync(
+        await this.dotNetFirebaseAuthReference.invokeMethodAsync(
             'OnAuthStateChanged',
             user
         );
         console.log('auth state changed invoked');
         if (user !== null && user !== undefined) {
-            if (
-                _firebaseJs.data.signedInUid === null &&
-                !_firebaseJs.data.presenceActive
-            ) {
-                _firebaseJs.activatePresence();
+            if (this.data.signedInUid === null && !this.data.presenceActive) {
+                this.activatePresence();
             }
-            _firebaseJs.data.lastUid = _firebaseJs.data.signedInUid;
-            _firebaseJs.data.signedInUid = user.uid;
+            this.data.lastUid = this.data.signedInUid;
+            this.data.signedInUid = user.uid;
         } else {
-            if (_firebaseJs.data.signedInUid !== null) {
-                _firebaseJs.data.lastUid = _firebaseJs.data.signedInUid;
-                _firebaseJs.data.signedInUid = null;
+            if (this.data.signedInUid !== null) {
+                this.data.lastUid = this.data.signedInUid;
+                this.data.signedInUid = null;
             }
         }
-    },
-    config: null,
-    createUserWithEmail: async function (email: string, password: string) {
-        if (!_firebaseJs.isInitialized()) {
-            return;
+    }
+    async createUserWithEmail(email: string, password: string): Promise<string> {
+        if (!this.isInitialized() || this.auth === null) {
+            return Promise.reject();
         }
-        let userJsonData: string = null;
-        await createUserWithEmailAndPassword(_firebaseJs.auth, email, password)
+        let userJsonData: string | null = null;
+        await createUserWithEmailAndPassword(this.auth, email, password)
             .then(async (userCredential) => {
                 userJsonData = JSON.stringify(userCredential.user);
-                await _firebaseJs.authStateChanged(userCredential.user);
-                _firebaseJs.activatePresence();
+                await this.authStateChanged(userCredential.user);
+                this.activatePresence();
             })
             .catch((e) => {
                 console.error(e);
             });
+        if (userJsonData === null) {
+            return Promise.reject();
+        }
         console.log(userJsonData);
-        return userJsonData;
-    },
-    data: {
-        allowAnonymous: false,
-        anonymousUser: null,
-        anonymousUserData: null,
-        signedInUid: null,
-        lastUid: null,
-        isOnlineForDatabase: (): IFirebaseJsDataDatabaseValue => {
-            return {
-                state: 'online',
-                last_changed: dbServerTimestamp()
-            };
-        },
-        isOnlineForFirestore: (): IFirebaseJsDataFirestoreValue => {
-            return {
-                state: 'online',
-                last_changed: firestoreServerTimestamp()
-            };
-        },
-        isOfflineForDatabase: (): IFirebaseJsDataDatabaseValue => {
-            return {
-                state: 'offline',
-                last_changed: dbServerTimestamp()
-            };
-        },
-        isOfflineForFirestore: (): IFirebaseJsDataFirestoreValue => {
-            return {
-                state: 'offline',
-                last_changed: firestoreServerTimestamp()
-            };
-        },
-        presenceActive: false
-    },
-    database: null,
-    dotNetFirebaseAuthReference: null,
-    firestore: null,
-    fsListen: function () {
-        if (_firebaseJs.data.presenceActive) {
+        return Promise.resolve(userJsonData);
+    }
+    fsListen(): void {
+        if (this.data.presenceActive || this.firestore === null) {
             return;
         }
         console.log('fsListen');
         // [START fs_onsnapshot]
         firestoreOnSnapshot(
-            firestoreCollection(_firebaseJs.firestore, '/status/'),
+            firestoreCollection(this.firestore, '/status/'),
             function (snapshot: firestoreQuerySnapshot<firestoreDocumentData>): void {
                 //let isOnline = snapshot.data().state === 'online';
                 // ... use isOnline
             }
         );
         // [END fs_onsnapshot]
-    },
-    fsListenOnline: function () {
-        if (_firebaseJs.data.presenceActive) {
+    }
+    fsListenOnline() {
+        if (this.data.presenceActive || this.firestore === null) {
             return;
         }
         console.log('fsListenOnline');
         // [START fs_onsnapshot_online]
         firestoreOnSnapshot(
             firestoreQuery(
-                firestoreCollection(_firebaseJs.firestore, '/status/'),
+                firestoreCollection(this.firestore, '/status/'),
                 firestoreWhere('state', '==', 'online')
             ),
             (snapshot: firestoreQuerySnapshot<firestoreDocumentData>) => {
@@ -197,98 +269,58 @@ const _firebaseJs: IFirebaseJs = {
             }
         );
         // [END fs_onsnapshot_online]
-    },
-    googleProvider: null,
-    initialize: async function (dotNetObjectReference: DotNet.DotNetObject) {
-        if (
-            _firebaseJs !== undefined &&
-            _firebaseJs.dotNetFirebaseAuthReference !== null
-        ) {
-            console.log('Firebase already initialized, skipping');
-            return;
-        }
-        try {
-            // Initialize Firebase
-            _firebaseJs.dotNetFirebaseAuthReference = dotNetObjectReference;
-            const firebaseConfigJsonDiv: HTMLElement =
-                document.getElementById('firebaseConfig');
-            _firebaseJs.config = JSON.parse(atob(firebaseConfigJsonDiv.innerText));
-            const firebaseUiConfigJsonDiv: HTMLElement =
-                document.getElementById('firebaseUiConfig');
-            _firebaseJs.uiConfigFromStorage = JSON.parse(
-                atob(firebaseUiConfigJsonDiv.innerText)
-            );
-            const uiConfig: firebaseUiAuth.Config = _firebaseJs.uiConfigFactory();
-            _firebaseJs.app = firebase.initializeApp(_firebaseJs.config);
-            _firebaseJs.auth = getAuth();
-            _firebaseJs.database = getDatabase();
-            _firebaseJs.firestore = getFirestore(_firebaseJs.app);
-            _firebaseJs.googleProvider = new GoogleAuthProvider();
-            console.log(`Firebase app "${_firebaseJs.app.name}" loaded`);
-            console.log('firebaseui loading');
-            _firebaseJs.ui = new firebaseUiAuth.AuthUI(_firebaseJs.auth);
-            console.log('firebaseui loaded', _firebaseJs.ui);
-            _firebaseJs.ui.start('#firebaseui-auth-container', uiConfig);
-            console.log('firebaseui started', uiConfig);
-            if (_firebaseJs.data.allowAnonymous) {
-                await _firebaseJs.signInAnonymously();
-            }
-        } catch (e) {
-            console.error(e);
-        }
-        try {
-            // add observer to auth state changed
-            onAuthStateChanged(_firebaseJs.auth, _firebaseJs.authStateChanged);
-        } catch (e) {
-            console.error('Error setting up auth state listener', e);
-        }
-    },
-    isInitialized: function () {
+    }
+    isInitialized() {
         return (
-            _firebaseJs !== undefined &&
-            _firebaseJs.dotNetFirebaseAuthReference !== undefined &&
-            _firebaseJs.dotNetFirebaseAuthReference !== null &&
-            _firebaseJs.auth !== null
+            this.dotNetFirebaseAuthReference !== undefined &&
+            this.dotNetFirebaseAuthReference !== null &&
+            this.auth !== null
         );
-    },
-    loginWithEmail: async function (email, password) {
-        if (!_firebaseJs.isInitialized()) {
-            return;
+    }
+    async loginWithEmail(email, password): Promise<string> {
+        if (!this.isInitialized() || this.auth === null) {
+            return Promise.reject();
         }
-        let userJsonData = null;
-        await signInWithEmailAndPassword(_firebaseJs.auth, email, password)
+        let userJsonData: string | null = null;
+        await signInWithEmailAndPassword(this.auth, email, password)
             .then(async (userCredential) => {
                 // Signed in
                 userJsonData = JSON.stringify(userCredential.user);
-                await _firebaseJs.authStateChanged(userCredential.user);
+                await this.authStateChanged(userCredential.user);
                 console.log('loginWithEmail: starting presence');
-                _firebaseJs.activatePresence();
+                this.activatePresence();
             })
             .catch(async (error) => {
                 const errorCode = error.code;
                 const errorMessage = error.message;
                 console.error(error);
-                await _firebaseJs.authStateChanged(null);
+                await this.authStateChanged(null);
             });
-        console.log(userJsonData);
-        return userJsonData;
-    },
-    loginWithGooglePopup: async function () {
-        if (!_firebaseJs.isInitialized()) {
-            return;
+        if (userJsonData === null) {
+            return Promise.reject();
         }
-        let userJsonData = null;
-        signInWithPopup(_firebaseJs.auth, _firebaseJs.googleProvider)
+        console.log(userJsonData);
+        return Promise.resolve(userJsonData);
+    }
+    async loginWithGooglePopup(): Promise<string> {
+        if (!this.isInitialized() || this.auth === null || this.googleProvider === null) {
+            return Promise.reject();
+        }
+        let userJsonData: string | null = null;
+        await signInWithPopup(this.auth, this.googleProvider)
             .then(async (result) => {
                 // This gives you a Google Access Token. You can use it to access the Google API.
                 const credential = GoogleAuthProvider.credentialFromResult(result);
+                if (credential === null) {
+                    return Promise.reject();
+                }
                 const token = credential.accessToken;
                 // The signed-in user info.
                 const user = result.user;
                 userJsonData = JSON.stringify(user);
-                await _firebaseJs.authStateChanged(result.user);
+                await this.authStateChanged(result.user);
                 console.log('loginWithGooglePopup: starting presence');
-                _firebaseJs.activatePresence();
+                this.activatePresence();
             })
             .catch(async (error) => {
                 // Handle Errors here.
@@ -299,25 +331,34 @@ const _firebaseJs: IFirebaseJs = {
                 // The AuthCredential type that was used.
                 const credential = GoogleAuthProvider.credentialFromError(error);
                 console.log(error);
-                await _firebaseJs.authStateChanged(null);
+                await this.authStateChanged(null);
             });
+        if (userJsonData === null) {
+            return Promise.reject();
+        }
         console.log(userJsonData);
-        return userJsonData;
-    },
-    rtdbPresence: function () {
-        if (_firebaseJs.data.presenceActive) {
+        return Promise.resolve(userJsonData);
+    }
+    async rtdbPresence() {
+        if (
+            this.data.presenceActive ||
+            this.auth === null ||
+            this.auth.currentUser === null ||
+            this.database === null
+        ) {
             return;
         }
         console.log('rtdbPresence');
         // [START rtdb_presence]
         // Fetch the current user's ID from Firebase Authentication.
-        const uid = _firebaseJs.auth.currentUser.uid;
+        const uid = this.auth.currentUser.uid;
         console.log('rtdbPresence:uid', uid);
 
         // Create a reference to the special '.info/connected' path in
         // Realtime Database. This path returns `true` when connected
         // and `false` when disconnected.
-        const infoRef = dbRef(_firebaseJs.database, '.info/connected');
+        const infoRef = dbRef(this.database, '.info/connected');
+        const self = this;
         dbOnValue(infoRef, async (snapshot) => {
             console.log('dbOnValue:snapshot', snapshot);
             // If we're not currently connected, don't do anything.
@@ -326,15 +367,18 @@ const _firebaseJs: IFirebaseJs = {
             }
             // Create a reference to this user's specific status node.
             // This is where we will store data about being online/offline.
-            const userStatusDatabaseRef = dbRef(_firebaseJs.database, '/status/' + uid);
+            if (this.database === null) {
+                return;
+            }
+            const userStatusDatabaseRef = dbRef(this.database, '/status/' + uid);
             const connection = dbPush(userStatusDatabaseRef);
 
             // If we are currently connected, then use the 'onDisconnect()'
             // method to add a set which will only trigger once this
             // client has disconnected by closing the app,
             // losing internet, or any other means.
-            dbOnDisconnect(connection)
-                .set(_firebaseJs.data.isOfflineForDatabase())
+            await dbOnDisconnect(connection)
+                .set(this.data.isOfflineForDatabase())
                 .then(function () {
                     console.log('dbOnDisconnect, under snapshot', snapshot);
                     // The promise returned from .onDisconnect().set() will
@@ -344,125 +388,155 @@ const _firebaseJs: IFirebaseJs = {
 
                     // We can now safely set ourselves as 'online' knowing that the
                     // server will mark us as offline once we lose connection.
-                    dbSet(userStatusDatabaseRef, _firebaseJs.data.isOnlineForDatabase());
+                    dbSet(userStatusDatabaseRef, self.data.isOnlineForDatabase());
                 });
         });
         // [END rtdb_presence]
-    },
-    rtdbAndLocalFsPresence: function () {
-        if (_firebaseJs.data.presenceActive) {
+    }
+    async rtdbAndLocalFsPresence() {
+        if (
+            this.data.presenceActive ||
+            this.auth === null ||
+            this.auth.currentUser === null ||
+            this.database === null ||
+            this.firestore === null
+        ) {
             return;
         }
         console.log('rtdbAndLocalFsPresence');
         // [START rtdb_and_local_fs_presence]
         // [START_EXCLUDE]
-        const uid = _firebaseJs.auth.currentUser.uid;
+        const uid = this.auth.currentUser.uid;
         console.log('rtdbAndLocalFsPresence:uid', uid);
         // [END_EXCLUDE]
-        const userStatusFirestoreRef = firestoreDoc(
-            _firebaseJs.firestore,
-            '/status/' + uid
-        );
+        const userStatusFirestoreRef = firestoreDoc(this.firestore, '/status/' + uid);
         // Firestore uses a different server timestamp value, so we'll
         // create two more constants for Firestore state.
-        const infoRef = dbRef(_firebaseJs.database, '.info/connected');
+        const infoRef = dbRef(this.database, '.info/connected');
+        const self = this;
         dbOnValue(infoRef, async (snapshot) => {
             console.log('rtdbAndLocalFsPresence:dbOnValue:snapshot', snapshot);
-            const userStatusDatabaseRef = dbRef(_firebaseJs.database, '/status/' + uid);
+            if (this.database === null) {
+                return;
+            }
+            const userStatusDatabaseRef = dbRef(this.database, '/status/' + uid);
             if (snapshot.val() == false) {
                 // Instead of simply returning, we'll also set Firestore's state
                 // to 'offline'. This ensures that our Firestore cache is aware
                 // of the switch to 'offline.'
-                dbSet(userStatusDatabaseRef, _firebaseJs.data.isOfflineForDatabase());
+                dbSet(userStatusDatabaseRef, this.data.isOfflineForDatabase());
                 firestoreSetDoc(
                     userStatusFirestoreRef,
-                    _firebaseJs.data.isOfflineForFirestore()
+                    this.data.isOfflineForFirestore()
                 );
                 return;
             }
             const connection = dbPush(userStatusDatabaseRef);
-            dbOnDisconnect(connection)
-                .set(_firebaseJs.data.isOfflineForDatabase())
+            await dbOnDisconnect(connection)
+                .set(this.data.isOfflineForDatabase())
                 .then(function () {
                     console.log(
                         'rtdbAndLocalFsPresence:dbOnDisconnect:snapshot',
                         snapshot
                     );
-                    dbSet(userStatusDatabaseRef, _firebaseJs.data.isOnlineForDatabase());
+                    dbSet(userStatusDatabaseRef, self.data.isOnlineForDatabase());
                     firestoreSetDoc(
                         userStatusFirestoreRef,
-                        _firebaseJs.data.isOnlineForFirestore()
+                        self.data.isOnlineForFirestore()
                     );
                 });
         });
         // [END rtdb_and_local_fs_presence]
-    },
-    sendEmailVerification: async function () {
-        if (!_firebaseJs.isInitialized()) {
-            return;
+    }
+    async sendEmailVerification(): Promise<boolean> {
+        if (
+            !this.isInitialized() ||
+            this.auth === null ||
+            this.auth.currentUser === null
+        ) {
+            return Promise.reject();
         }
-        let sent = null;
-        await sendEmailVerification(_firebaseJs.auth.currentUser)
+        let sent: boolean | null = null;
+        let caughtError = null;
+        await sendEmailVerification(this.auth.currentUser)
             .then(() => {
                 // Email verification sent!
                 // ...
                 sent = true;
             })
             .catch((error) => {
+                caughtError = error;
                 sent = false;
             });
-        return sent;
-    },
-    sendEmailPasswordReset: async function (email) {
-        if (!_firebaseJs.isInitialized()) {
-            return;
+        if (sent === null || sent === false) {
+            return Promise.reject(caughtError);
         }
-        let reset = null;
-        await sendPasswordResetEmail(_firebaseJs.auth, email)
+        return sent;
+    }
+    async sendEmailPasswordReset(email): Promise<boolean> {
+        if (!this.isInitialized() || this.auth === null) {
+            return Promise.reject();
+        }
+        let reset: boolean | null = null;
+        let caughtError = null;
+        await sendPasswordResetEmail(this.auth, email)
             .then(async () => {
                 reset = true;
             })
-            .catch(() => {
+            .catch((error) => {
+                caughtError = error;
                 reset = false;
             });
-        return reset;
-    },
-    setDatabaseUserStatus: function (user: User, status: boolean) {
-        const userStatusDatabaseRef = dbRef(_firebaseJs.database, '/status/' + user.uid);
+        if (reset === null || reset === false) {
+            return Promise.reject(caughtError);
+        }
+        return Promise.resolve(reset);
+    }
+    async setDatabaseUserStatus(user: User, status: boolean) {
+        if (this.database === null) {
+            return;
+        }
+        const userStatusDatabaseRef = dbRef(this.database, '/status/' + user.uid);
         dbSet(
             userStatusDatabaseRef,
-            status
-                ? _firebaseJs.data.isOnlineForDatabase()
-                : _firebaseJs.data.isOfflineForDatabase()
+            status ? this.data.isOnlineForDatabase() : this.data.isOfflineForDatabase()
         );
-    },
-    setFirestoreUserStatus: function (user: User, status: boolean) {
+    }
+    setFirestoreUserStatus(user: User, status: boolean) {
+        if (this.firestore === null) {
+            return;
+        }
         const userStatusFirestoreRef = firestoreDoc(
-            _firebaseJs.firestore,
+            this.firestore,
             '/status/' + user.uid
         );
         firestoreSetDoc(
             userStatusFirestoreRef,
-            status
-                ? _firebaseJs.data.isOnlineForFirestore()
-                : _firebaseJs.data.isOfflineForFirestore()
+            status ? this.data.isOnlineForFirestore() : this.data.isOfflineForFirestore()
         );
-    },
+    }
     setUserStatus(user: User, status: boolean) {
-        _firebaseJs.setDatabaseUserStatus(user, status);
-        _firebaseJs.setFirestoreUserStatus(user, status);
-    },
-    signInAnonymously: async function () {
-        if (!_firebaseJs.data.allowAnonymous) {
+        this.setDatabaseUserStatus(user, status);
+        this.setFirestoreUserStatus(user, status);
+    }
+    async signInAnonymously() {
+        if (!this.isInitialized() || this.auth === null) {
+            return;
+        }
+        if (!this.data.allowAnonymous) {
             console.log('signInAnonymously: disabled. returning.');
             return;
         }
         console.log('signInAnonymously');
-        signInAnonymously(_firebaseJs.auth)
+        const self = this;
+        await signInAnonymously(this.auth)
             .then(async function () {
-                _firebaseJs.data.anonymousUser = _firebaseJs.auth.currentUser;
+                if (self.auth === null) {
+                    return;
+                }
+                self.data.anonymousUser = self.auth.currentUser;
                 console.log('signInAnonymously: starting presence');
-                _firebaseJs.activatePresence();
+                self.activatePresence();
             })
             .catch(function (err) {
                 console.warn(err);
@@ -470,27 +544,34 @@ const _firebaseJs: IFirebaseJs = {
                     'Please enable Anonymous Authentication in your Firebase project!'
                 );
             });
-    },
-    signOut: async function () {
-        if (!_firebaseJs.isInitialized()) {
+    }
+    async signOut() {
+        if (
+            !this.isInitialized() ||
+            this.auth === null ||
+            this.auth.currentUser === null
+        ) {
             return false;
         }
-        _firebaseJs.setUserStatus(_firebaseJs.auth.currentUser, false);
-        let result = null;
-        signOut(_firebaseJs.auth)
+        this.setUserStatus(this.auth.currentUser, false);
+        let result: boolean | null = null;
+        let caughtError = null;
+        await signOut(this.auth)
             .then(() => {
                 // Sign-out successful.
                 result = true;
             })
-            .catch(() => {
+            .catch((error) => {
                 // An error happened.
+                caughtError = error;
                 result = false;
             });
+        if (result === null || result === false) {
+            return Promise.reject(caughtError);
+        }
         return result;
-    },
-    ui: null,
-    uiConfig: null,
-    uiConfigFactory: function () {
+    }
+    uiConfigFactory() {
         const _signInOptions: string[] = [
             GoogleAuthProvider.PROVIDER_ID,
             FacebookAuthProvider.PROVIDER_ID,
@@ -499,9 +580,13 @@ const _firebaseJs: IFirebaseJs = {
             EmailAuthProvider.PROVIDER_ID,
             PhoneAuthProvider.PROVIDER_ID
         ];
-        if (_firebaseJs.data.allowAnonymous) {
+        if (this.data.allowAnonymous) {
             _signInOptions.push(firebaseUiAuth.AnonymousAuthProvider.PROVIDER_ID);
         }
+        if (this.uiConfigFromStorage === null) {
+            throw new Error('uiConfigFromStorage is null');
+        }
+        const self = this;
         return {
             callbacks: {
                 signInSuccessWithAuthResult: function (
@@ -518,41 +603,43 @@ const _firebaseJs: IFirebaseJs = {
                     return Promise.resolve();
                 }
             },
-            signInSuccessUrl: _firebaseJs.uiConfigFromStorage.signInSuccessUrl,
+            signInSuccessUrl: this.uiConfigFromStorage.signInSuccessUrl,
             signInOptions: _signInOptions,
             // tosUrl and privacyPolicyUrl accept either url string or a callback
             // function.
             // Terms of service url/callback.
-            tosUrl: _firebaseJs.uiConfigFromStorage.tosUrl,
+            tosUrl: this.uiConfigFromStorage.tosUrl,
             // Privacy policy url/callback.
-            privacyPolicyUrl: function () {
-                window.location.assign(_firebaseJs.uiConfigFromStorage.privacyPolicyUrl);
-            },
+            privacyPolicyUrl: this.uiConfigFromStorage.privacyPolicyUrl,
             autoUpgradeAnonymousUsers: false
         };
-    },
-    uiConfigFromStorage: null,
-    updateProfile: async function (userData) {
-        if (!_firebaseJs.isInitialized()) {
-            return;
+    }
+    async updateProfile(userData): Promise<void> {
+        if (
+            !this.isInitialized() ||
+            this.auth === null ||
+            this.auth.currentUser === null
+        ) {
+            return Promise.reject();
         }
-        let updated = null;
-        await updateProfile(_firebaseJs.auth.currentUser, userData)
+        let updated: boolean | null = null;
+        let caughtError = null;
+        await updateProfile(this.auth.currentUser, userData)
             .then(async () => {
                 // Profile updated!
                 // ...
                 updated = true;
             })
             .catch((error) => {
+                caughtError = error;
                 console.error(error);
                 // An error occurred
                 // ...
                 updated = false;
             });
-        return updated;
+        if (updated === null || updated === false) {
+            return Promise.reject(caughtError);
+        }
+        return Promise.resolve();
     }
-};
-
-window.firebaseJs = window.firebaseJs || _firebaseJs;
-
-export default { firebaseJs: _firebaseJs };
+}
