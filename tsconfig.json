@@ -1,5 +1,7 @@
 {
   "compilerOptions": {
+    "strict": true,
+    "forceConsistentCasingInFileNames": true,
     "noImplicitAny": false,
     "module": "commonjs",
     "moduleResolution": "node",
@@ -17,13 +19,13 @@
     "enableAutoDiscovery": true
   },
   "include": [
-    "src/firebaseJs.ts"
+    "src/index.ts"
   ],
   "exclude": [
     "node_modules",
     "build/**/*"
   ],
   "files": [
-    "src/firebaseJs.ts"
+    "src/index.ts"
   ]
 }

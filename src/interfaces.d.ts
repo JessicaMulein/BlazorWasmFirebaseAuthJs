@@ -4,6 +4,10 @@ import { Auth, GoogleAuthProvider, User, UserInfo } from 'firebase/auth';
 import { Database } from 'firebase/database';
 import { FieldValue, Firestore } from 'firebase/firestore';
 import { auth as firebaseUiAuth } from 'firebaseui';
+export interface IFirebaseWindow {
+    firebaseJs: IFirebaseJs | null;
+    static initialize(dotNetObjectReference: DotNet.DotNetObject): Promise<FirebaseJs>;
+}
 interface IFirebaseJsDataDatabaseValue {
     state: string;
     last_changed: object;
@@ -16,15 +20,15 @@ interface IFirebaseJsDataFirestoreValue {
 
 interface IFirebaseJsData {
     allowAnonymous: boolean;
-    anonymousUser?: User;
+    anonymousUser?: User | null;
     anonymousUserData?: firestoreQuerySnapshot<firestoreDocumentData>;
-    signedInUid?: string;
-    lastUid?: string;
+    signedInUid?: string | null;
+    lastUid?: string | null;
     presenceActive: boolean;
-    isOfflineForDatabase?: () => IFirebaseJsDataDatabaseValue;
-    isOnlineForDatabase?: () => IFirebaseJsDataDatabaseValue;
-    isOfflineForFirestore?: () => IFirebaseJsDataFirestoreValue;
-    isOnlineForFirestore?: () => IFirebaseJsDataFirestoreValue;
+    isOfflineForDatabase: () => IFirebaseJsDataDatabaseValue;
+    isOnlineForDatabase: () => IFirebaseJsDataDatabaseValue;
+    isOfflineForFirestore: () => IFirebaseJsDataFirestoreValue;
+    isOnlineForFirestore: () => IFirebaseJsDataFirestoreValue;
 }
 
 interface IFirebaseUiConfigSimple {
@@ -37,18 +41,17 @@ interface IFirebaseUiConfigSimple {
 interface IFirebaseJs {
     activatePresence: () => void;
     data: IFirebaseJsData;
-    app?: FirebaseApp;
-    auth?: Auth;
+    app: FirebaseApp | null;
+    auth: Auth | null;
     authStateChanged: (user: User) => any;
-    config?: object;
+    config: object;
     createUserWithEmail: (email: string, password: string) => Promise<string | null>;
-    database?: Database;
-    dotNetFirebaseAuthReference?: DotNet.DotNetObject;
-    firestore?: Firestore;
+    database: Database | null;
+    dotNetFirebaseAuthReference: DotNet.DotNetObject | null;
+    firestore: Firestore | null;
     fsListen: () => any;
     fsListenOnline: () => any;
-    googleProvider?: GoogleAuthProvider;
-    initialize: (dotNetObjectReference: DotNet.DotNetObject) => any;
+    googleProvider?: GoogleAuthProvider | null;
     isInitialized: () => boolean;
     loginWithEmail: (email: string, password: string) => Promise<string | null>;
     loginWithGooglePopup: () => Promise<string | null>;
@@ -61,9 +64,9 @@ interface IFirebaseJs {
     setUserStatus: (user: User, status: boolean) => any;
     signInAnonymously: () => Promise<any>;
     signOut: () => Promise<boolean>;
-    ui?: firebaseUiAuth.AuthUI;
-    uiConfigFromStorage?: IFirebaseUiConfigSimple;
-    uiConfig?: firebaseUiAuth.Config;
+    ui: firebaseUiAuth.AuthUI | null;
+    uiConfigFromStorage: IFirebaseUiConfigSimple | null;
+    uiConfig: firebaseUiAuth.Config | null;
     uiConfigFactory: () => firebaseUiAuth.Config;
     updateProfile: (userData: object) => Promise<any>;
 }
